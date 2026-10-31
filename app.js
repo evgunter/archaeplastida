@@ -276,13 +276,10 @@ function renderList(best) {
   }).join("");
 }
 
-// induced ("virtual") tree on the guessed tips plus the secret
-function renderTree() {
-  const sec = $("tree-section");
-  sec.hidden = !G.guesses.length;
-  if (!G.guesses.length) return;
-  const set = new Set(G.guesses.map(g => g.node)); set.add(G.secret.node);
-  let pts = [...set].sort((a, b) => a - b);
+// induced ("virtual") tree on a set of guessed tips plus the secret
+function inducedTree(guessNodes) {
+  const set = new Set(guessNodes); set.add(G.secret.node);
+  const pts = [...set].sort((a, b) => a - b);
   const all = new Set(pts);
   for (let i = 0; i + 1 < pts.length; i++) all.add(mrca(pts[i], pts[i + 1]));
   const nodes = [...all].sort((a, b) => a - b);
@@ -293,34 +290,67 @@ function renderTree() {
     if (stack.length) kids.get(stack[stack.length - 1]).push(x); else root = x;
     stack.push(x);
   }
+  return { root, kids };
+}
+// named clades strictly between induced node u and its induced child v (top-down);
+// never below the deepest known clade of the secret
+function chainBetween(u, v) {
+  if (v === G.secret.node && !G.over) return [];
+  const chain = [];
+  for (let x = parent[v]; x !== u && x >= 0; x = parent[x]) if (namesOf(x).length) chain.push(x);
+  return chain.reverse();
+}
+// every node displayed in the tree for a set of guesses
+function shownNodes(guessNodes) {
+  const { root, kids } = inducedTree(guessNodes);
+  const out = new Set(chainBetween(-1, root));
+  for (const [u, ch] of kids) { out.add(u); for (const v of ch) chainBetween(u, v).forEach(x => out.add(x)); }
+  return out;
+}
+// nodes added to the tree by the most recent guess (highlighted until the next one)
+function freshNodes() {
+  const gs = G.guesses.map(g => g.node);
+  if (!gs.length) return new Set();
+  const last = gs[gs.length - 1];
+  const before = shownNodes(gs.slice(0, -1));
+  const fresh = new Set([...shownNodes(gs)].filter(x => !before.has(x)));
+  // the secret "moved" if this guess narrowed the best clade
+  const prevBest = gs.slice(0, -1).reduce((b, g) => { const m = mrca(g, G.secret.node); return depth[m] > depth[b] ? m : b; }, 0);
+  if (depth[mrca(last, G.secret.node)] > depth[prevBest]) fresh.add(G.secret.node);
+  return fresh;
+}
+
+function renderTree() {
+  const sec = $("tree-section");
+  sec.hidden = !G.guesses.length;
+  if (!G.guesses.length) return;
+  const { root, kids } = inducedTree(G.guesses.map(g => g.node));
+  const fresh = G.over ? new Set() : freshNodes();
+  const fr = x => fresh.has(x) ? " fresh" : "";
   const secret = G.secret.node;
   const html = x => {
     const onPath = isAnc(x, secret);
     let row;
     if (x === secret && !G.won && !G.over) {
-      row = `<span class="tnode secret">??? secret plant</span>`;
+      row = `<span class="tnode secret${fr(x)}">??? secret plant</span>`;
     } else if (isTip[x]) {
       const t = tipOfNode.get(x);
-      row = `<span class="tnode ${x === secret ? "secret found" : ""}">${tipHTML(t)}</span>`;
+      row = `<span class="tnode ${x === secret ? "secret found" : ""}${fr(x)}">${tipHTML(t)}</span>`;
     } else {
-      row = `<span class="tnode internal ${onPath ? "path" : ""}" title="${esc(cladeTitle(x))}">${cladeLabelHTML(x)} <span class="cnt">${size[x].toLocaleString()} spp.</span></span>`;
+      row = `<span class="tnode internal ${onPath ? "path" : ""}${fr(x)}" title="${esc(cladeTitle(x))}">${cladeLabelHTML(x)} <span class="cnt">${size[x].toLocaleString()} spp.</span></span>`;
     }
     const ch = kids.get(x) || [];
     // show the secret's branch first
     ch.sort((a, b) => (isAnc(b, secret) ? 1 : 0) - (isAnc(a, secret) ? 1 : 0));
     return `<li class="${onPath ? "path" : ""}">${row}${ch.length ? `<ul>${ch.map(c => withChain(x, c)).join("")}</ul>` : ""}</li>`;
   };
-  // named clades lying between induced node u and its induced child v, shown
-  // as intermediate rows. Never below the deepest known clade of the secret.
+  // named clades between branch points, on one compact row
   const withChain = (u, v) => {
     let inner = html(v);
-    if (v === secret && !G.over) return inner;
-    const chain = [];
-    for (let x = parent[v]; x !== u && x >= 0; x = parent[x]) if (namesOf(x).length) chain.push(x);
+    const chain = chainBetween(u, v);
     if (chain.length) {
-      chain.reverse();  // top-down
       const onPath = isAnc(chain[chain.length - 1], secret);
-      const label = chain.map(x => `<span title="${esc(cladeTitle(x))}">${cladeLabelHTML(x, { short: true })}</span>`).join(" › ");
+      const label = chain.map(x => `<span class="${fr(x).trim()}" title="${esc(cladeTitle(x))}">${cladeLabelHTML(x, { short: true })}</span>`).join(" › ");
       inner = `<li class="${onPath ? "path" : ""}"><span class="tnode internal inter ${onPath ? "path" : ""}">${label}</span><ul>${inner}</ul></li>`;
     }
     return inner;

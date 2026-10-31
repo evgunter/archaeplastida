@@ -87,3 +87,7 @@ dialog::backdrop { background: rgba(0,0,0,.4); }
 .tnode.internal.inter .n { font-weight: 500; }
 .tnode.internal.inter { display: inline; line-height: 1.7; padding: 0 4px; }
 .tnode.internal.inter > span { white-space: nowrap; }
+/* added to the tree by the latest guess */
+.fresh { background: color-mix(in srgb, var(--hl) 30%, transparent); box-shadow: 0 0 0 2px var(--hl); border-radius: 6px; }
+.tnode.secret.fresh { box-shadow: 0 0 0 3px var(--accent); }
+.tnode.internal.inter .fresh { padding: 0 3px; }
