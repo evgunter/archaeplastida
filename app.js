@@ -319,24 +319,10 @@ function chainBetween(u, v) {
   for (let x = parent[v]; x !== u && x >= 0; x = parent[x]) if (namesOf(x).length) chain.push(x);
   return chain.reverse();
 }
-// every node displayed in the tree for a set of guesses
-function shownNodes(guessNodes) {
-  const { root, kids } = inducedTree(guessNodes);
-  const out = new Set(chainBetween(-1, root));
-  for (const [u, ch] of kids) { out.add(u); for (const v of ch) chainBetween(u, v).forEach(x => out.add(x)); }
-  return out;
-}
-// nodes added to the tree by the most recent guess (highlighted until the next one)
+// the most recent guess is highlighted in the tree until the next one
 function freshNodes() {
-  const gs = G.guesses.map(g => g.node);
-  if (!gs.length) return new Set();
-  const last = gs[gs.length - 1];
-  const before = shownNodes(gs.slice(0, -1));
-  const fresh = new Set([...shownNodes(gs)].filter(x => !before.has(x)));
-  // the secret "moved" if this guess narrowed the best clade
-  const prevBest = gs.slice(0, -1).reduce((b, g) => { const m = mrca(g, G.secret.node); return depth[m] > depth[b] ? m : b; }, G.start || 0);
-  if (depth[mrca(last, G.secret.node)] > depth[prevBest]) fresh.add(G.secret.node);
-  return fresh;
+  const n = G.guesses.length;
+  return new Set(n ? [G.guesses[n - 1].node] : []);
 }
 
 function renderTree() {
