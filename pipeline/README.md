@@ -40,6 +40,10 @@ Builds `data/game.json`: the species list and phylogeny the game uses.
    membership equals its species set exactly. It also gets the node-based names in
    `clade_defs.CLADES` (eudicots, rosids, lamiids, …), applied only when
    the excluded taxa really fall outside that node.
+   An iNat genus, family, or order that matches no node exactly gets an
+   *approximate* label on the deepest node holding ≥80% of its California species,
+   provided ≥80% of that node's species belong to it. The game marks these with ≈ and
+   gives the counts in a tooltip, e.g. *Quercus* when the tree nests tanoak inside the oaks.
 
 ## Running
 
@@ -68,8 +72,9 @@ $W/venv/bin/python pipeline/build_tree.py --inat $W/inat_ca.json --endemic $W/en
 
 `nodes` is in preorder, so a parent always comes before its children. Each entry is one of:
 
-- internal: `[parent, [[name, rank, common_name], ...]]` (an empty list means unnamed)
-- species: `[parent, scientific_name, common_name, status, n_obs, inat_id, photo, photo_attribution, source]`
+- internal: `[parent, [[name, rank, common_name], ...]]` (an empty list means unnamed).
+  Approximate names carry three more numbers: `[name, rank, common, in_clade, taxon_total, clade_size]`
+- species: `[parent, scientific_name, common_name, status, n_obs, inat_id, photo, photo_attribution, source, family]`
   where status is `e`ndemic / `n`ative / `i`ntroduced / empty, and source is `o`
   (placed by Open Tree) or `g` (grafted by taxonomy).
 

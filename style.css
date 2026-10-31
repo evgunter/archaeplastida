@@ -80,3 +80,10 @@ dialog { max-width: 620px; border: 1px solid var(--line); border-radius: 12px; b
 dialog::backdrop { background: rgba(0,0,0,.4); }
 [hidden] { display: none !important; }
 #suggestions li.none { color: var(--muted); cursor: default; font-size: .92rem; }
+.crumbs { font-size: .82rem; color: var(--muted); margin-top: 6px; line-height: 1.6; }
+.crumbs .n { font-weight: 400; }
+.approx { color: var(--hl); font-weight: 700; margin-right: 2px; cursor: help; }
+.tnode.internal.inter { font-size: .85rem; opacity: .85; }
+.tnode.internal.inter .n { font-weight: 500; }
+.tnode.internal.inter { display: inline; line-height: 1.7; padding: 0 4px; }
+.tnode.internal.inter > span { white-space: nowrap; }

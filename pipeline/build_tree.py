@@ -577,13 +577,50 @@ for cname, inc, exc in CLADES:
         log("clade not supported by tree:", cname, "contains", bad); continue
     curated[m].append(cname)
 
+# approximate names: an iNat taxon (genus and up) whose California species
+# match no node exactly labels the deepest node holding >= 80% of them,
+# provided >= 80% of that node's species belong to it. Stored with counts so
+# the game can say "31 of 34 species".
+exact_taxa = {c[3] for o in order if T.sid[o] is None for c in names_by_hash.get((h[o], sz[o]), [])}
+depth_of = {}
+for o in order:
+    depth_of[o] = 0 if T.par[o] < 0 else depth_of[T.par[o]] + 1
+approx = defaultdict(list)
+n_approx = 0
+for a, leaves in tax_leaves.items():
+    if a in exact_taxa or a not in TAXA or not (20 <= TAXA[a][2] <= 40) or len(leaves) < 2:  # genus..order
+        continue
+    cnt = defaultdict(int)
+    for l in leaves:
+        x = T.par[l]
+        while x >= 0:
+            cnt[x] += 1; x = T.par[x]
+    m_ = len(leaves)
+    cands = [x for x, k in cnt.items() if k >= 0.8 * m_ and k >= 2]
+    if not cands:
+        continue
+    X = max(cands, key=lambda x: depth_of[x])
+    if sz[X] - cnt[X] > 0.2 * sz[X]:
+        continue
+    nm, rank, rl, _ = TAXA[a]
+    exact_same_rank = any(c[2] == rank for c in names_by_hash.get((h[X], sz[X]), []))
+    if not exact_same_rank:
+        approx[X].append((rl, nm, rank, a, cnt[X], m_, sz[X]))
+        n_approx += 1
+log("approximate taxon names:", n_approx)
+
 RANKS_SKIP = {"stateofmatter"}
 out_nodes = []
 for o in order:
     p = new[T.par[o]] if T.par[o] >= 0 else -1
     names = []
     if T.sid[o] is None:
-        cand = sorted(names_by_hash.get((h[o], sz[o]), []))
+        # one entry per name, keeping its highest rank (genus Viola over section Viola)
+        best_c = {}
+        for c in names_by_hash.get((h[o], sz[o]), []):
+            if c[1] not in best_c or c[0] > best_c[c[1]][0]:
+                best_c[c[1]] = c
+        cand = sorted(best_c.values())
         seen = set()
         for rl, nm, rank, a in cand:
             if nm.lower() not in seen and rank not in RANKS_SKIP:
@@ -599,6 +636,9 @@ for o in order:
             if (nm not in name2taxon and not any(nm.lower() in x for x in seen)
                     and not nm.startswith("mrca") and not nm.lower().startswith("unclassified")):
                 names.append([nm, "clade", ""]); seen.add(nm.lower())
+        for rl, nm, rank, a, k, m_, n_ in sorted(approx.get(o, [])):
+            if nm.lower() not in seen:
+                names.append([nm, rank, common.get(a, ""), k, m_, n_]); seen.add(nm.lower())
         if p == -1 and not any(n[0] == "Archaeplastida" for n in names):
             names.insert(0, ["Archaeplastida", "clade", ""])
         for n_ in names:
@@ -612,7 +652,8 @@ for o in order:
         photo = photo.replace("https://inaturalist-open-data.s3.amazonaws.com/photos/", "o:") \
                      .replace("https://static.inaturalist.org/photos/", "s:")
         src = "o" if s["id"] in matched else "g"
-        out_nodes.append([p, s["name"], s["common"] or "", means, s["count"], s["id"], photo, s["attr"] or "", src])
+        fam = next((TAXA[a][0] for a in reversed(s["anc"]) if a in TAXA and TAXA[a][1] == "family"), "")
+        out_nodes.append([p, s["name"], s["common"] or "", means, s["count"], s["id"], photo, s["attr"] or "", src, fam])
 
 # stats
 n_int = sum(1 for x in out_nodes if isinstance(x[1], list))

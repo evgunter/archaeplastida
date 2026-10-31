@@ -22,6 +22,11 @@
       <option value="algae">Algae only (red + green)</option>
       <option value="nonvascular">Non-vascular (algae + bryophytes)</option>
     </select>
+    <select id="spread" title="How the secret is chosen (practice mode)">
+      <option value="balanced" selected>Balanced across families</option>
+      <option value="family">Even across families</option>
+      <option value="species">Even across species</option>
+    </select>
     <button id="btn-help" title="How to play">?</button>
   </nav>
 </header>
@@ -35,7 +40,8 @@
     <ul id="suggestions" hidden></ul>
   </div>
   <div id="actions">
-    <button id="btn-hint">Hint</button>
+    <button id="btn-hint" title="Reveal a narrower named clade containing the secret">Hint: narrower clade</button>
+    <button id="btn-genera" title="List every genus in the clade you've narrowed it to">Hint: list genera</button>
     <button id="btn-giveup">Give up</button>
     <button id="btn-new" hidden>New plant</button>
     <button id="btn-share" hidden>Copy result</button>
@@ -60,6 +66,9 @@
   <p>A secret plant has been chosen from among the plants observed growing wild in California. That includes flowering plants, conifers, ferns, mosses, liverworts, hornworts, and green and red algae: the whole of <em>Archaeplastida</em> that's found here.</p>
   <p>Guess any species. You'll see the <strong>smallest clade</strong> (branch of the tree of life) containing both your guess and the secret, along with how many California species that clade contains. Narrow down until you guess the exact species.</p>
   <p>Many clades have no formal name. They show up as <em>unnamed clade</em> along with the nearest named group that contains them. The tree resolves splits wherever published phylogenies support them, not just at named ranks.</p>
+  <p>Stuck? <strong>Hint: narrower clade</strong> names a smaller group that contains the secret. <strong>Hint: list genera</strong> lists every genus in the clade you've narrowed it to (once that clade has 50 or fewer genera).</p>
+  <p>A <span class="approx">≈</span> before a name means the group isn't exactly a clade in this tree. Hover over it to see how many of its species fall inside.</p>
+  <p>The secret isn't chosen evenly among species, which would make more than one in five secrets a sunflower or pea relative. By default a family is picked first (bigger families somewhat more likely, weighted by the square root of their size), then a species within it. Practice mode lets you change this.</p>
   <p>Badges: <span class="badge e">endemic</span> <span class="badge n">native</span> <span class="badge i">introduced</span></p>
   <h3>Data</h3>
   <ul>

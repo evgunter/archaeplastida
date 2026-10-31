@@ -24,8 +24,8 @@ async function load() {
     depth[i] = parent[i] < 0 ? 0 : depth[parent[i]] + 1;
     if (!Array.isArray(N[i][1])) {
       isTip[i] = 1;
-      const [, sci, common, means, count, id, photo, attr, src] = N[i];
-      const t = { node: i, sci, common, means, count, id, photo, attr, src,
+      const [, sci, common, means, count, id, photo, attr, src, family] = N[i];
+      const t = { node: i, sci, common, means, count, id, photo, attr, src, family,
                   key: (common + " " + sci).toLowerCase() };
       tips.push(t);
       tipByName.set(sci, t);
@@ -67,7 +67,7 @@ function cladeLabelHTML(i, { short = false } = {}) {
   if (ns.length) {
     const [nm, rank, common] = ns[0];
     const it = ["genus", "subgenus", "section", "species"].includes(rank) ? `<i>${nm}</i>` : nm;
-    let s = `<span class="n">${it}</span>`;
+    let s = `${ns[0].length > 3 ? `<span class="approx" title="${esc(approxNote(ns[0]))}">≈</span>` : ""}<span class="n">${it}</span>`;
     if (!short && rank && rank !== "clade") s += ` <span class="cnt">${rank}</span>`;
     if (common && !short) s += ` <span class="cnt">· ${esc(common)}</span>`;
     if (!short && ns.length > 1) s += ` <span class="cnt">(= ${ns.slice(1).map(x => x[0]).join(", ")})</span>`;
@@ -77,13 +77,14 @@ function cladeLabelHTML(i, { short = false } = {}) {
   const an = a >= 0 ? primaryName(a)[0] : "Archaeplastida";
   return `<span class="n unnamed">unnamed clade in ${esc(an)}</span>`;
 }
+// names stored as [name, rank, common, inClade, total, cladeSize] are approximate:
+// the taxon isn't exactly a clade in this tree
+const approxNote = n => `≈ ${n[0]} isn't exactly a clade in this tree: ${n[3]} of its ${n[4]} California species fall in this clade` +
+  (n[5] > n[3] ? `, along with ${n[5] - n[3]} species from other groups` : "") + ".";
 function cladeTitle(i) {
   const ns = namesOf(i);
-  const genera = new Set();
-  for (let x = i; x < end[i] && genera.size < 12; x++) if (isTip[x]) genera.add(N[x][1].split(" ")[0]);
-  let t = ns.map(n => `${n[0]}${n[1] ? " (" + n[1] + ")" : ""}${n[2] ? " – " + n[2] : ""}`).join("\n");
-  t += (t ? "\n" : "") + `${size[i]} CA species; genera include ${[...genera].join(", ")}${genera.size >= 12 ? "…" : ""}`;
-  return t;
+  let t = ns.map(n => `${n[0]}${n[1] ? " (" + n[1] + ")" : ""}${n[2] ? " – " + n[2] : ""}${n.length > 3 ? "\n  " + approxNote(n) : ""}`).join("\n");
+  return t + (t ? "\n" : "") + `${size[i]} CA species`;
 }
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const badge = m => m ? `<span class="badge ${m}">${{ e: "endemic", n: "native", i: "introduced" }[m]}</span>` : "";
@@ -107,11 +108,31 @@ function pool(kind) {
     default: return tips.slice();
   }
 }
+// Secret selection: pick a family (weighted by spread), then a species in it.
+// "species": every species equally likely (big families dominate);
+// "balanced": family weight = sqrt(#species in pool) (default);
+// "family": every family equally likely.
+const familyOf = t => t.family || t.sci.split(" ")[0];
+function pickSecret(p, spread, rnd) {
+  const fams = new Map();
+  for (const t of p) { const f = familyOf(t); if (!fams.has(f)) fams.set(f, []); fams.get(f).push(t); }
+  const groups = [...fams.values()];
+  const w = groups.map(g => spread === "family" ? 1 : spread === "species" ? g.length : Math.sqrt(g.length));
+  let r = rnd() * w.reduce((a, b) => a + b, 0);
+  for (let i = 0; i < groups.length; i++) {
+    r -= w[i];
+    if (r < 0 || i === groups.length - 1) return groups[i][Math.floor(rnd() * groups[i].length)];
+  }
+}
+function seededRandom(seed) {  // mulberry32
+  return () => { seed |= 0; seed = (seed + 0x6D2B79F5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+}
 function hashStr(s) { let h = 2166136261; for (const c of s) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); } return h >>> 0; }
 function today() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; }
 function dailySecret(dateStr) {
   const p = pool("medium").slice(0, 600).sort((a, b) => a.id - b.id);
-  return p[hashStr("archaeplastida:" + dateStr) % p.length];
+  return pickSecret(p, "balanced", seededRandom(hashStr("archaeplastida:" + dateStr)));
 }
 
 // ---------------------------------------------------------------- game state
@@ -121,26 +142,26 @@ const $ = id => document.getElementById(id);
 function newGame(mode) {
   if (mode === "daily") {
     const date = today();
-    const saved = JSON.parse(localStorage.getItem("arch-daily") || "null");
+    const saved = JSON.parse(localStorage.getItem("arch-daily-v2") || "null");
     const secret = dailySecret(date);
     G = { mode, date, secret, guesses: [], hints: 0, over: false, won: false };
     if (saved && saved.date === date) {
       G.guesses = saved.guesses.map(s => tipByName.get(s)).filter(Boolean);
-      G.hints = saved.hints; G.hintNodes = saved.hintNodes || []; G.over = saved.over; G.won = saved.won;
+      G.hints = saved.hints; G.hintLog = saved.hintLog || []; G.over = saved.over; G.won = saved.won;
     }
   } else {
     const p = pool($("pool").value);
-    G = { mode, secret: p[Math.floor(Math.random() * p.length)], guesses: [], hints: 0, over: false, won: false };
+    G = { mode, secret: pickSecret(p, $("spread").value, Math.random), guesses: [], hints: 0, over: false, won: false };
   }
   $("btn-daily").classList.toggle("active", mode === "daily");
   $("btn-practice").classList.toggle("active", mode === "practice");
-  $("pool").disabled = mode === "daily";
+  $("pool").disabled = $("spread").disabled = mode === "daily";
   $("guess").value = ""; hideSuggestions();
   render();
 }
 function save() {
   if (G.mode !== "daily") return;
-  localStorage.setItem("arch-daily", JSON.stringify({ date: G.date, guesses: G.guesses.map(t => t.sci), hints: G.hints, hintNodes: G.hintNodes || [], over: G.over, won: G.won }));
+  localStorage.setItem("arch-daily-v2", JSON.stringify({ date: G.date, guesses: G.guesses.map(t => t.sci), hints: G.hints, hintLog: G.hintLog || [], over: G.over, won: G.won }));
 }
 
 function makeGuess(t) {
@@ -155,6 +176,20 @@ function bestClade() {
   for (const g of G.guesses) { const m = mrca(g.node, G.secret.node); if (depth[m] > depth[best]) best = m; }
   return best;
 }
+
+// genera hint: every genus in a clade, with species counts
+function generaIn(i) {
+  const g = new Map();
+  for (let x = i; x < end[i]; x++) if (isTip[x]) { const k = N[x][1].split(" ")[0]; g.set(k, (g.get(k) || 0) + 1); }
+  return [...g.entries()].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1));
+}
+function generaHTML(i) {
+  const g = generaIn(i), MAX = 60;
+  const s = g.slice(0, MAX).map(([k, n]) => `<i>${esc(k)}</i>${n > 1 ? ` <span class="cnt">${n}</span>` : ""}`).join(", ");
+  return s + (g.length > MAX ? ` <span class="cnt">… and ${g.length - MAX} more genera</span>` : "");
+}
+const GENERA_HINT_MAX = 50;
+const generaHintUsed = n => (G.hintLog || []).some(h => h.t === "g" && h.n === n);
 
 // hints: successive named clades containing the secret, below the current best
 function nextHint() {
@@ -180,15 +215,23 @@ function render() {
       <div class="sub">It's one of ${tips.length.toLocaleString()} species. Start with any plant you know.</div>`;
   } else {
     st.innerHTML = `<div class="big">The secret is in: ${cladeLabelHTML(best)}</div>
-      <div class="sub">${size[best].toLocaleString()} California species in this clade · ${gcount} guess${gcount === 1 ? "" : "es"}</div>`;
+      <div class="sub">${size[best].toLocaleString()} California species in this clade · ${gcount} guess${gcount === 1 ? "" : "es"}</div>
+      <div class="crumbs">${lineageHTML(best)}</div>`;
   }
   $("guess").disabled = G.over;
   $("btn-hint").disabled = G.over || !nextHint();
+  const ng = generaIn(best).length;
+  $("btn-genera").disabled = G.over || generaHintUsed(best) || ng < 2 || ng > GENERA_HINT_MAX;
+  $("btn-genera").title = ng > GENERA_HINT_MAX
+    ? `Narrow it down to a clade with at most ${GENERA_HINT_MAX} genera first (currently ${ng})`
+    : "List every genus in the clade you've narrowed it to";
   $("btn-giveup").hidden = G.over;
   $("btn-new").hidden = !(G.over && G.mode === "practice");
   $("btn-share").hidden = !G.over;
 
-  $("hints").innerHTML = (G.hintNodes || []).map(x => `💡 The secret is in ${cladeLabelHTML(x)} <span class="cnt">(${size[x]} species)</span>`).join("<br>");
+  $("hints").innerHTML = (G.hintLog || []).map(h => h.t === "c"
+    ? `💡 The secret is in ${cladeLabelHTML(h.n)} <span class="cnt">(${size[h.n]} species)</span>`
+    : `💡 Genera in ${cladeLabelHTML(h.n, { short: true })} <span class="cnt">(${size[h.n]} species)</span>: ${generaHTML(h.n)}`).join("<br>");
 
   // reveal
   const rv = $("reveal");
@@ -208,6 +251,13 @@ function render() {
 
   renderList(best);
   renderTree();
+}
+
+// every named clade from the root down to node i (inclusive)
+function lineageHTML(i) {
+  const out = [];
+  for (let x = i; x >= 0; x = parent[x]) if (namesOf(x).length) out.push(x);
+  return out.reverse().map(x => `<span title="${esc(cladeTitle(x))}">${cladeLabelHTML(x, { short: true })}</span>`).join(" › ");
 }
 
 function renderList(best) {
@@ -258,9 +308,24 @@ function renderTree() {
     const ch = kids.get(x) || [];
     // show the secret's branch first
     ch.sort((a, b) => (isAnc(b, secret) ? 1 : 0) - (isAnc(a, secret) ? 1 : 0));
-    return `<li class="${onPath ? "path" : ""}">${row}${ch.length ? `<ul>${ch.map(html).join("")}</ul>` : ""}</li>`;
+    return `<li class="${onPath ? "path" : ""}">${row}${ch.length ? `<ul>${ch.map(c => withChain(x, c)).join("")}</ul>` : ""}</li>`;
   };
-  $("tree").innerHTML = `<ul>${html(root)}</ul>`;
+  // named clades lying between induced node u and its induced child v, shown
+  // as intermediate rows. Never below the deepest known clade of the secret.
+  const withChain = (u, v) => {
+    let inner = html(v);
+    if (v === secret && !G.over) return inner;
+    const chain = [];
+    for (let x = parent[v]; x !== u && x >= 0; x = parent[x]) if (namesOf(x).length) chain.push(x);
+    if (chain.length) {
+      chain.reverse();  // top-down
+      const onPath = isAnc(chain[chain.length - 1], secret);
+      const label = chain.map(x => `<span title="${esc(cladeTitle(x))}">${cladeLabelHTML(x, { short: true })}</span>`).join(" › ");
+      inner = `<li class="${onPath ? "path" : ""}"><span class="tnode internal inter ${onPath ? "path" : ""}">${label}</span><ul>${inner}</ul></li>`;
+    }
+    return inner;
+  };
+  $("tree").innerHTML = `<ul>${withChain(-1, root)}</ul>`;
 }
 
 // ---------------------------------------------------------------- autocomplete
@@ -324,12 +389,16 @@ function wire() {
   $("btn-daily").onclick = () => newGame("daily");
   $("btn-practice").onclick = () => newGame("practice");
   $("btn-new").onclick = () => newGame("practice");
-  $("pool").onchange = () => { if (G.mode === "practice") newGame("practice"); };
+  $("pool").onchange = $("spread").onchange = () => { if (G.mode === "practice") newGame("practice"); };
   $("btn-help").onclick = () => $("help").showModal();
   $("btn-giveup").onclick = () => { if (confirm("Reveal the answer?")) { G.over = true; save(); render(); } };
   $("btn-hint").onclick = () => {
     const h = nextHint(); if (h == null) return;
-    G.hints++; (G.hintNodes = G.hintNodes || []).push(h); save(); render();
+    G.hints++; (G.hintLog = G.hintLog || []).push({ t: "c", n: h }); save(); render();
+  };
+  $("btn-genera").onclick = () => {
+    const b = bestClade(); if (generaHintUsed(b)) return;
+    G.hints++; (G.hintLog = G.hintLog || []).push({ t: "g", n: b }); save(); render();
   };
   $("btn-share").onclick = () => {
     const rows = G.guesses.map(g => {
