@@ -2,7 +2,6 @@
 
 Inputs (paths given on the command line, see pipeline/README.md):
   --inat      JSON from fetch_inat.py (California research-grade species counts)
-  --endemic   JSON from fetch_endemic.py
   --taxa      iNaturalist open-data taxa.csv.gz (for ancestor names / ranks)
   --otol      pickle of the Archaeplastida subtree of the Open Tree synthesis
               (from otol_extract.py)
@@ -33,7 +32,7 @@ import argparse, csv, gzip, io, json, pickle, random, re, sys, time, urllib.requ
 from collections import defaultdict
 
 ap = argparse.ArgumentParser()
-for a in ["inat", "endemic", "taxa", "otol", "gbotb", "ott", "tnrs-cache", "out"]:
+for a in ["inat", "taxa", "otol", "gbotb", "ott", "tnrs-cache", "out"]:
     ap.add_argument("--" + a, required=True)
 ap.add_argument("--taxon-common", help="JSON {iNat taxon id: common name} from fetch_taxon_names.py")
 ap.add_argument("--min-count", type=int, default=2,
@@ -56,7 +55,6 @@ with gzip.open(args.taxa, "rt") as f:
 
 INFRA = {"subspecies", "variety", "form", "infrahybrid"}
 recs = json.load(open(args.inat))
-endemic_ids = set(json.load(open(args.endemic)))
 species = {}  # sid -> dict
 for r in recs:
     tid, rank = r["id"], r["rank"]
@@ -77,7 +75,9 @@ for r in recs:
                                 anc=[a for a in anc if a != sid], count=0, common=None,
                                 means=None, photo=None, attr=None, endemic=False)
     s["count"] += r["count"]
-    if tid in endemic_ids:
+    # status comes only from iNat's California listing for the taxon itself
+    # (the observation-level endemic=true filter flags non-endemics)
+    if r.get("means") == "endemic" and r.get("means_place") == 14:
         s["endemic"] = True
     own = rank == "species"
     for k_src, k_dst in [("common", "common"), ("means", "means"), ("photo", "photo"), ("photo_attr", "attr")]:

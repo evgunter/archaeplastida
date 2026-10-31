@@ -91,3 +91,13 @@ dialog::backdrop { background: rgba(0,0,0,.4); }
 .fresh { background: color-mix(in srgb, var(--hl) 30%, transparent); box-shadow: 0 0 0 2px var(--hl); border-radius: 6px; }
 .tnode.secret.fresh { box-shadow: 0 0 0 3px var(--accent); }
 .tnode.internal.inter .fresh { padding: 0 3px; }
+#scope-box { display: flex; gap: 8px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
+#scope-box label { color: var(--muted); font-size: .92rem; }
+.scope-wrap { position: relative; flex: 1; min-width: 240px; }
+#scope { width: 100%; font: inherit; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--fg); }
+#scope:focus { outline: none; border-color: var(--accent); }
+ul.sugg { position: absolute; z-index: 6; left: 0; right: 0; margin: 2px 0 0; padding: 0; list-style: none;
+  background: var(--card); border: 1px solid var(--line); border-radius: 10px; max-height: 380px; overflow: auto; box-shadow: 0 6px 20px rgba(0,0,0,.15); }
+ul.sugg li { padding: 6px 10px; cursor: pointer; }
+ul.sugg li.sel, ul.sugg li:hover { background: var(--accent-soft); }
+ul.sugg li.none { color: var(--muted); cursor: default; }

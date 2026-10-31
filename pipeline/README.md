@@ -15,7 +15,7 @@ Builds `data/game.json`: the species list and phylogeny the game uses.
 ## How the tree is built (`build_tree.py`)
 
 1. **Species.** iNat leaf taxa are folded into species. A species is kept if it has
-   at least 2 research-grade CA observations, or iNat flags it as native/endemic.
+   at least 2 research-grade CA observations, or iNat lists it as native or endemic in California. Status comes from the iNat California listing of each taxon.
 2. **Open Tree induced subtree.** Species are matched to Open Tree by exact name,
    then via TNRS (synonyms). The synthetic tree is pruned to the matched species,
    and unary nodes are collapsed. Open Tree has resolved nodes for which there is no
@@ -58,11 +58,10 @@ curl -o $D/phylo/GBOTB.extended.WP.rda https://raw.githubusercontent.com/jinyizj
 
 python -m venv $W/venv && $W/venv/bin/pip install rdata numpy
 python3 pipeline/fetch_inat.py $W/inat_ca.json
-python3 pipeline/fetch_endemic.py $W/endemic.json
 python3 pipeline/fetch_taxon_names.py $W/inat_ca.json $W/taxon_common.json
 $W/venv/bin/python pipeline/rda2pkl.py $D/phylo/GBOTB.extended.WP.rda $W/gbotb.pkl
 python3 pipeline/otol_extract.py $D/otol/labelled_supertree_ottnames.tre $W/otol_arch.pkl
-$W/venv/bin/python pipeline/build_tree.py --inat $W/inat_ca.json --endemic $W/endemic.json \
+$W/venv/bin/python pipeline/build_tree.py --inat $W/inat_ca.json \
   --taxa $D/inat/taxa.csv.gz --otol $W/otol_arch.pkl --gbotb $W/gbotb.pkl \
   --ott $D/ott/ott3.7.3 --tnrs-cache $W/tnrs_cache.json \
   --taxon-common $W/taxon_common.json --out data/game.json

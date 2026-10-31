@@ -96,16 +96,30 @@ function tipHTML(t, thumb = true) {
 }
 
 // ---------------------------------------------------------------- pools & seeding
-function pool(kind) {
-  const natives = tips.filter(t => t.means === "n" || t.means === "e").sort((a, b) => b.count - a.count || (a.sci < b.sci ? -1 : 1));
-  const inGroup = (t, names) => { for (let x = t.node; x >= 0; x = parent[x]) if (namesOf(x).some(n => names.includes(n[0]))) return true; return false; };
+// Practice pools. `scope` is null (everything), a clade node, or one of the
+// non-clade presets below. Difficulty is scaled to the scope: "easy" is the
+// most-observed ~5% of its natives (at least 10), "medium" ~25% (at least 25).
+const PRESETS = {
+  algae: { label: "algae (red + green; not a clade)",
+           test: t => inGroup(t, ["Rhodophyta", "Chlorophyta", "Charophyceae", "Zygnematophyceae"]) },
+  nonvascular: { label: "non-vascular plants (algae + bryophytes; not a clade)",
+                 test: t => !inGroup(t, ["Tracheophyta"]) },
+};
+function inGroup(t, names) {
+  for (let x = t.node; x >= 0; x = parent[x]) if (namesOf(x).some(n => names.includes(n[0]))) return true;
+  return false;
+}
+function pool(kind, scope = null) {
+  let all = tips;
+  if (typeof scope === "number") all = tips.filter(t => isAnc(scope, t.node));
+  else if (scope && PRESETS[scope]) all = tips.filter(PRESETS[scope].test);
+  const natives = all.filter(t => t.means === "n" || t.means === "e").sort((a, b) => b.count - a.count || (a.sci < b.sci ? -1 : 1));
+  if (!natives.length || kind === "all") return all.slice();
+  const global = !scope;
   switch (kind) {
-    case "easy": return natives.slice(0, 300);
-    case "medium": return natives.slice(0, 1500);
-    case "hard": return natives;
-    case "algae": return tips.filter(t => inGroup(t, ["Rhodophyta", "Chlorophyta", "Charophyta", "Charophyceae", "Zygnematophyceae"]));
-    case "nonvascular": return tips.filter(t => !inGroup(t, ["Tracheophyta"]));
-    default: return tips.slice();
+    case "easy": return natives.slice(0, global ? 300 : Math.max(10, Math.round(natives.length * 0.05)));
+    case "medium": return natives.slice(0, global ? 1500 : Math.max(25, Math.round(natives.length * 0.25)));
+    default: return natives;
   }
 }
 // Secret selection: pick a family (weighted by spread), then a species in it.
@@ -150,12 +164,14 @@ function newGame(mode) {
       G.hints = saved.hints; G.hintLog = saved.hintLog || []; G.over = saved.over; G.won = saved.won;
     }
   } else {
-    const p = pool($("pool").value);
-    G = { mode, secret: pickSecret(p, $("spread").value, Math.random), guesses: [], hints: 0, over: false, won: false };
+    const p = pool($("pool").value, scope);
+    G = { mode, secret: pickSecret(p, $("spread").value, Math.random), guesses: [], hints: 0, over: false, won: false,
+          start: typeof scope === "number" ? scope : 0, poolSize: p.length };
   }
   $("btn-daily").classList.toggle("active", mode === "daily");
   $("btn-practice").classList.toggle("active", mode === "practice");
   $("pool").disabled = $("spread").disabled = mode === "daily";
+  $("scope-box").hidden = mode === "daily";
   $("guess").value = ""; hideSuggestions();
   render();
 }
@@ -171,8 +187,10 @@ function makeGuess(t) {
   save(); render();
 }
 
+// deepest clade known to contain the secret: from guesses, or the clade
+// practice mode was limited to
 function bestClade() {
-  let best = 0;
+  let best = G.start || 0;
   for (const g of G.guesses) { const m = mrca(g.node, G.secret.node); if (depth[m] > depth[best]) best = m; }
   return best;
 }
@@ -210,12 +228,12 @@ function render() {
     st.innerHTML = `<div class="big">🎉 Got it in ${gcount} guess${gcount === 1 ? "" : "es"}${G.hints ? ` (${G.hints} hint${G.hints > 1 ? "s" : ""})` : ""}!</div>`;
   } else if (G.over) {
     st.innerHTML = `<div class="big">The answer was revealed.</div>`;
-  } else if (!gcount) {
+  } else if (!gcount && !G.start) {
     st.innerHTML = `<div class="big">${G.mode === "daily" ? "Today's plant" : "A secret plant"} is waiting.</div>
-      <div class="sub">It's one of ${tips.length.toLocaleString()} species. Start with any plant you know.</div>`;
+      <div class="sub">It's one of ${(G.poolSize || tips.length).toLocaleString()} possible species${scope && PRESETS[scope] ? ` (${esc(PRESETS[scope].label)})` : ""}. Start with any plant you know.</div>`;
   } else {
     st.innerHTML = `<div class="big">The secret is in: ${cladeLabelHTML(best)}</div>
-      <div class="sub">${size[best].toLocaleString()} California species in this clade · ${gcount} guess${gcount === 1 ? "" : "es"}</div>
+      <div class="sub">${size[best].toLocaleString()} California species in this clade${gcount ? ` · ${gcount} guess${gcount === 1 ? "" : "es"}` : ""}${G.start && best === G.start && G.poolSize < size[best] ? ` · secret drawn from ${G.poolSize.toLocaleString()} of them` : ""}</div>
       <div class="crumbs">${lineageHTML(best)}</div>`;
   }
   $("guess").disabled = G.over;
@@ -279,6 +297,7 @@ function renderList(best) {
 // induced ("virtual") tree on a set of guessed tips plus the secret
 function inducedTree(guessNodes) {
   const set = new Set(guessNodes); set.add(G.secret.node);
+  if (G.start) set.add(G.start);
   const pts = [...set].sort((a, b) => a - b);
   const all = new Set(pts);
   for (let i = 0; i + 1 < pts.length; i++) all.add(mrca(pts[i], pts[i + 1]));
@@ -315,7 +334,7 @@ function freshNodes() {
   const before = shownNodes(gs.slice(0, -1));
   const fresh = new Set([...shownNodes(gs)].filter(x => !before.has(x)));
   // the secret "moved" if this guess narrowed the best clade
-  const prevBest = gs.slice(0, -1).reduce((b, g) => { const m = mrca(g, G.secret.node); return depth[m] > depth[b] ? m : b; }, 0);
+  const prevBest = gs.slice(0, -1).reduce((b, g) => { const m = mrca(g, G.secret.node); return depth[m] > depth[b] ? m : b; }, G.start || 0);
   if (depth[mrca(last, G.secret.node)] > depth[prevBest]) fresh.add(G.secret.node);
   return fresh;
 }
@@ -358,6 +377,92 @@ function renderTree() {
   $("tree").innerHTML = `<ul>${withChain(-1, root)}</ul>`;
 }
 
+// ---------------------------------------------------------------- limit-to-clade (practice)
+let scope = null;  // null | clade node | preset key
+let cladeIndex = null;
+function buildCladeIndex() {
+  cladeIndex = [];
+  for (let i = 0; i < N.length; i++) {
+    if (isTip[i] || size[i] < 2) continue;
+    for (const n of namesOf(i)) cladeIndex.push({ node: i, name: n[0], rank: n[1], common: n[2] || "",
+                                                 key: (n[0] + " " + (n[2] || "")).toLowerCase() });
+  }
+}
+function scopeLabel() {
+  if (scope === null) return "";
+  if (PRESETS[scope]) return PRESETS[scope].label;
+  const n = primaryName(scope);
+  return n[0] + (n[2] ? ` (${n[2]})` : "");
+}
+function setScope(v) {
+  scope = v;
+  localStorage.setItem("arch-scope", JSON.stringify(v === null ? null : typeof v === "number" ? { node: primaryName(v)[0] } : { preset: v }));
+  $("scope").value = scopeLabel();
+  $("scope-clear").hidden = scope === null;
+  $("scope-sugg").hidden = true;
+  if (G && G.mode === "practice") newGame("practice");
+}
+function wireScope() {
+  buildCladeIndex();
+  try {  // restore by name, since node numbers change between data builds
+    const s = JSON.parse(localStorage.getItem("arch-scope") || "null");
+    if (s && s.preset && PRESETS[s.preset]) scope = s.preset;
+    else if (s && s.node) { const e = cladeIndex.find(c => c.name === s.node); if (e) scope = e.node; }
+  } catch (e) {}
+  $("scope").value = scopeLabel(); $("scope-clear").hidden = scope === null;
+  const inp = $("scope"), ul = $("scope-sugg");
+  let items = [], sel = 0;
+  const show = () => {
+    const q = inp.value.trim().toLowerCase();
+    if (q.length < 2) { ul.hidden = true; return; }
+    const words = q.split(/\s+/);
+    const seen = new Set(), out = [];
+    for (const [k, p] of Object.entries(PRESETS)) if (words.every(w => p.label.includes(w))) out.push({ preset: k, score: 1000 });
+    for (const c of cladeIndex) {
+      if (!words.every(w => c.key.includes(w)) || seen.has(c.node)) continue;
+      seen.add(c.node);
+      const nm = c.name.toLowerCase(), cm = c.common.toLowerCase();
+      const score = (nm === q || cm === q ? 100 : 0) + (nm.startsWith(q) || cm.startsWith(q) ? 40 : 0) + Math.log10(size[c.node]);
+      out.push({ ...c, score });
+    }
+    items = out.sort((a, b) => b.score - a.score).slice(0, 10); sel = 0;
+    ul.innerHTML = items.map((c, i) => c.preset
+      ? `<li data-i="${i}" class="${i === sel ? "sel" : ""}"><span class="names"><span class="common">${esc(PRESETS[c.preset].label)}</span></span></li>`
+      : `<li data-i="${i}" class="${i === sel ? "sel" : ""}"><span class="names"><span class="common">${["genus", "subgenus", "section"].includes(c.rank) ? `<i>${esc(c.name)}</i>` : esc(c.name)} <span class="cnt">${esc(c.rank)}</span></span><span class="sci">${esc(c.common)}${c.common ? " · " : ""}${size[c.node].toLocaleString()} species</span></span></li>`).join("")
+      || `<li class="none">No named clade matches.</li>`;
+    ul.hidden = false;
+  };
+  const pickItem = i => { const c = items[i]; if (c) setScope(c.preset || c.node); };
+  inp.addEventListener("input", show);
+  inp.addEventListener("focus", () => inp.select());
+  inp.addEventListener("keydown", e => {
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault(); if (!items.length) return;
+      sel = (sel + (e.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
+      [...ul.children].forEach((li, i) => li.classList.toggle("sel", i === sel));
+    } else if (e.key === "Enter") { e.preventDefault(); pickItem(sel); inp.blur(); }
+    else if (e.key === "Escape") { ul.hidden = true; inp.value = scopeLabel(); }
+  });
+  ul.addEventListener("mousedown", e => { const li = e.target.closest("li[data-i]"); if (li) { e.preventDefault(); pickItem(+li.dataset.i); inp.blur(); } });
+  inp.addEventListener("blur", () => setTimeout(() => { ul.hidden = true; inp.value = scopeLabel(); }, 100));
+  $("scope-clear").onclick = () => setScope(null);
+}
+
+// common "plants" that aren't in Archaeplastida, so searching them explains why
+const BROWN = "is a brown alga (a stramenopile, closer to diatoms and water molds than to plants), so it isn't in Archaeplastida.";
+const NOT_PLANTS = [
+  [["sea palm", "postelsia"], `Sea palm (<i>Postelsia</i>) ${BROWN}`],
+  [["giant kelp", "macrocystis"], `Giant kelp (<i>Macrocystis</i>) ${BROWN}`],
+  [["bull kelp", "nereocystis"], `Bull kelp (<i>Nereocystis</i>) ${BROWN} (Bull kelp nori, <i>Pyropia nereocystis</i>, is a red alga that grows on it, and is in the game.)`],
+  [["feather boa", "egregia"], `Feather boa kelp (<i>Egregia</i>) ${BROWN}`],
+  [["rockweed", "fucus", "pelvetia", "silvetia"], `Rockweeds (<i>Fucus</i>, <i>Silvetia</i>, …) are brown algae (stramenopiles), so they aren't in Archaeplastida.`],
+  [["sargassum", "sargasso"], `<i>Sargassum</i> ${BROWN}`],
+  [["oar weed", "laminaria", "kelp"], `Kelps ${BROWN.replace("is a brown alga", "are brown algae")}`],
+  [["diatom"], "Diatoms are stramenopiles, not Archaeplastida."],
+  [["lichen"], "Lichens are fungi partnered with algae or cyanobacteria, so they aren't counted as plants here."],
+  [["mushroom", "fungus", "fungi"], "Fungi are more closely related to animals than to plants."],
+];
+
 // ---------------------------------------------------------------- autocomplete
 let sugg = [], sel = -1;
 function search(q) {
@@ -384,7 +489,9 @@ function showSuggestions() {
   if (!sugg.length) {
     const q = $("guess").value.trim();
     if (q.length >= 3) {
-      ul.innerHTML = `<li class="none">No California plant matches “${esc(q)}”. (Kelps and other brown algae, fungi and lichens aren't in Archaeplastida.)</li>`;
+      const ql = q.toLowerCase();
+      const hit = NOT_PLANTS.find(([keys]) => keys.some(k => ql.includes(k) || (ql.length >= 4 && k.includes(ql))));
+      ul.innerHTML = `<li class="none">${hit ? hit[1] : `No California plant matches “${esc(q)}”. (Kelps and other brown algae, fungi and lichens aren't in Archaeplastida.)`}</li>`;
       ul.hidden = false;
     } else hideSuggestions();
     return;
@@ -420,6 +527,7 @@ function wire() {
   $("btn-practice").onclick = () => newGame("practice");
   $("btn-new").onclick = () => newGame("practice");
   $("pool").onchange = $("spread").onchange = () => { if (G.mode === "practice") newGame("practice"); };
+  wireScope();
   $("btn-help").onclick = () => $("help").showModal();
   $("btn-giveup").onclick = () => { if (confirm("Reveal the answer?")) { G.over = true; save(); render(); } };
   $("btn-hint").onclick = () => {

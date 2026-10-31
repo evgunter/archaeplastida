@@ -14,13 +14,11 @@
   <nav>
     <button id="btn-daily" class="mode active">Daily</button>
     <button id="btn-practice" class="mode">Practice</button>
-    <select id="pool" title="Which plants can be the secret (practice mode)">
-      <option value="easy">Easy: 300 most-observed natives</option>
-      <option value="medium" selected>Medium: 1,500 most-observed natives</option>
+    <select id="pool" title="Difficulty (practice mode): how well-known the secret is">
+      <option value="easy">Easy: most-observed natives</option>
+      <option value="medium" selected>Medium: well-observed natives</option>
       <option value="hard">Hard: all natives</option>
       <option value="all">Everything (incl. introduced)</option>
-      <option value="algae">Algae only (red + green)</option>
-      <option value="nonvascular">Non-vascular (algae + bryophytes)</option>
     </select>
     <select id="spread" title="How the secret is chosen (practice mode)">
       <option value="balanced" selected>Balanced across families</option>
@@ -29,6 +27,14 @@
     </select>
     <button id="btn-help" title="How to play">?</button>
   </nav>
+  <div id="scope-box" hidden>
+    <label for="scope">Limit to clade:</label>
+    <div class="scope-wrap">
+      <input id="scope" type="text" autocomplete="off" spellcheck="false" placeholder="any plant (type e.g. ferns, Asteraceae, Quercus, algae…)">
+      <ul id="scope-sugg" class="sugg" hidden></ul>
+    </div>
+    <button id="scope-clear" hidden title="Remove the clade limit">✕</button>
+  </div>
 </header>
 
 <main>
@@ -69,6 +75,7 @@
   <p>Stuck? <strong>Hint: narrower clade</strong> names a smaller group that contains the secret. <strong>Hint: list genera</strong> lists every genus in the clade you've narrowed it to (once that clade has 50 or fewer genera).</p>
   <p>A <span class="approx">≈</span> before a name means the group isn't exactly a clade in this tree. Hover over it to see how many of its species fall inside.</p>
   <p>The secret isn't chosen evenly among species, which would make more than one in five secrets a sunflower or pea relative. By default a family is picked first (bigger families somewhat more likely, weighted by the square root of their size), then a species within it. Practice mode lets you change this.</p>
+  <p>In practice mode you can <strong>limit the secret to any named clade</strong>, such as ferns, Asteraceae, oaks, or land plants, or to algae or non-vascular plants. The game then starts with that clade already known. The difficulty setting is scaled to the clade: "easy" means its most-observed natives.</p>
   <p>Badges: <span class="badge e">endemic</span> <span class="badge n">native</span> <span class="badge i">introduced</span></p>
   <h3>Data</h3>
   <ul>
