@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Archaeplastida: guess the California plant</title>
+<link rel="stylesheet" href="style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌿</text></svg>">
+</head>
+<body>
+<header>
+  <h1>🌿 Archaeplastida</h1>
+  <p class="tagline">Guess the secret California plant. Each guess reveals the smallest clade it shares with the secret.</p>
+  <nav>
+    <button id="btn-daily" class="mode active">Daily</button>
+    <button id="btn-practice" class="mode">Practice</button>
+    <select id="pool" title="Which plants can be the secret (practice mode)">
+      <option value="easy">Easy: 300 most-observed natives</option>
+      <option value="medium" selected>Medium: 1,500 most-observed natives</option>
+      <option value="hard">Hard: all natives</option>
+      <option value="all">Everything (incl. introduced)</option>
+      <option value="algae">Algae only (red + green)</option>
+      <option value="nonvascular">Non-vascular (algae + bryophytes)</option>
+    </select>
+    <button id="btn-help" title="How to play">?</button>
+  </nav>
+</header>
+
+<main>
+  <section id="status"></section>
+
+  <div id="guess-box">
+    <input id="guess" type="text" autocomplete="off" spellcheck="false"
+           placeholder="Type a plant (common or scientific name)…">
+    <ul id="suggestions" hidden></ul>
+  </div>
+  <div id="actions">
+    <button id="btn-hint">Hint</button>
+    <button id="btn-giveup">Give up</button>
+    <button id="btn-new" hidden>New plant</button>
+    <button id="btn-share" hidden>Copy result</button>
+  </div>
+  <div id="hints"></div>
+
+  <section id="reveal" hidden></section>
+
+  <section id="tree-section" hidden>
+    <h2>Tree of your guesses</h2>
+    <div id="tree"></div>
+  </section>
+
+  <section id="list-section" hidden>
+    <h2>Guesses, closest first</h2>
+    <ol id="guess-list"></ol>
+  </section>
+</main>
+
+<dialog id="help">
+  <h2>How to play</h2>
+  <p>A secret plant has been chosen from among the plants observed growing wild in California. That includes flowering plants, conifers, ferns, mosses, liverworts, hornworts, and green and red algae: the whole of <em>Archaeplastida</em> that's found here.</p>
+  <p>Guess any species. You'll see the <strong>smallest clade</strong> (branch of the tree of life) containing both your guess and the secret, along with how many California species that clade contains. Narrow down until you guess the exact species.</p>
+  <p>Many clades have no formal name. They show up as <em>unnamed clade</em> along with the nearest named group that contains them. The tree resolves splits wherever published phylogenies support them, not just at named ranks.</p>
+  <p>Badges: <span class="badge e">endemic</span> <span class="badge n">native</span> <span class="badge i">introduced</span></p>
+  <h3>Data</h3>
+  <ul>
+    <li><strong>Species:</strong> every plant species with research-grade <a href="https://www.inaturalist.org">iNaturalist</a> observations in California. Native/endemic/introduced status, common names, and photos are from iNaturalist.</li>
+    <li><strong>Phylogeny:</strong> the <a href="https://tree.opentreeoflife.org">Open Tree of Life</a> synthetic tree (v16.1), which merges hundreds of published phylogenies. Where Open Tree leaves a polytomy, it's refined with compatible clades from the GBOTB seed plant megatree (Smith &amp; Brown 2018; Jin &amp; Qian 2022), then with iNaturalist taxonomy. Species missing from Open Tree are placed with their genus (or tribe or family).</li>
+  </ul>
+  <p id="data-built"></p>
+  <form method="dialog"><button>Close</button></form>
+</dialog>
+
+<footer>Photos © their iNaturalist observers (licenses shown on hover). <a href="https://github.com/evgunter/archaeplastida">Source &amp; methods</a></footer>
+<script src="app.js"></script>
+</body>
+</html>
