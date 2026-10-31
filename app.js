@@ -166,13 +166,14 @@ function newGame(mode) {
   } else {
     const p = pool($("pool").value, scope);
     G = { mode, secret: pickSecret(p, $("spread").value, Math.random), guesses: [], hints: 0, over: false, won: false,
-          start: typeof scope === "number" ? scope : 0, poolSize: p.length };
+          start: typeof scope === "number" ? scope : 0, poolSize: p.length, scope };
   }
   $("btn-daily").classList.toggle("active", mode === "daily");
   $("btn-practice").classList.toggle("active", mode === "practice");
   $("pool").disabled = $("spread").disabled = mode === "daily";
   $("scope-box").hidden = mode === "daily";
   $("guess").value = ""; hideSuggestions();
+  $("guess").placeholder = G.scope != null ? `Type a plant in ${scopeLabel()}…` : "Type a plant (common or scientific name)…";
   render();
 }
 function save() {
@@ -451,12 +452,19 @@ const NOT_PLANTS = [
 
 // ---------------------------------------------------------------- autocomplete
 let sugg = [], sel = -1;
-function search(q) {
+// in practice mode with a clade limit, guesses are restricted to that clade
+function inScope(t) {
+  const sc = G && G.mode === "practice" ? G.scope : null;
+  if (sc === null || sc === undefined) return true;
+  return typeof sc === "number" ? isAnc(sc, t.node) : PRESETS[sc].test(t);
+}
+function search(q, scoped = true) {
   q = q.trim().toLowerCase();
   if (q.length < 2) return [];
   const words = q.split(/\s+/);
   const out = [];
   for (const t of tips) {
+    if (scoped && !inScope(t)) continue;
     if (!words.every(w => t.key.includes(w))) continue;
     let score = 0;
     const cm = t.common.toLowerCase(), sc = t.sci.toLowerCase();
@@ -477,7 +485,10 @@ function showSuggestions() {
     if (q.length >= 3) {
       const ql = q.toLowerCase();
       const hit = NOT_PLANTS.find(([keys]) => keys.some(k => ql.includes(k) || (ql.length >= 4 && k.includes(ql))));
-      ul.innerHTML = `<li class="none">${hit ? hit[1] : `No California plant matches “${esc(q)}”. (Kelps and other brown algae, fungi and lichens aren't in Archaeplastida.)`}</li>`;
+      const outside = !hit && search(q, false)[0];
+      ul.innerHTML = `<li class="none">${hit ? hit[1]
+        : outside ? `No match in ${esc(scopeLabel())}. (${outside.common ? esc(outside.common) + ", " : ""}<i>${esc(outside.sci)}</i>, is outside it.)`
+        : `No California plant matches “${esc(q)}”. (Kelps and other brown algae, fungi and lichens aren't in Archaeplastida.)`}</li>`;
       ul.hidden = false;
     } else hideSuggestions();
     return;
