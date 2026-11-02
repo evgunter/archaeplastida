@@ -25,7 +25,7 @@ python3 -m http.server
 
 then visit http://localhost:8000. It can be hosted on GitHub Pages as is.
 
-Modes: **Daily** (same plant for everyone each day, drawn from the 600 most-observed natives)
+Modes: **Daily** (same plant for everyone each day, changing at midnight California time, drawn from the 600 most-observed natives)
 and **Practice**, with pools from "300 most-observed natives" up to everything, plus
 algae-only and non-vascular pools.
 

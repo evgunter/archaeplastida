@@ -14,7 +14,7 @@ function photoUrl(code, kind = "medium") {
 async function load() {
   const res = await fetch("data/game.json");
   const d = await res.json();
-  N = d.nodes;
+  N = d.nodes; DATA_BUILT = d.built;
   const n = N.length;
   parent = new Int32Array(n); depth = new Int32Array(n); end = new Int32Array(n);
   isTip = new Uint8Array(n); size = new Int32Array(n);
@@ -43,7 +43,7 @@ async function load() {
   document.getElementById("data-built").textContent =
     `${tips.length.toLocaleString()} species · data built ${d.built}`;
 }
-let tipOfNode;
+let tipOfNode, DATA_BUILT;
 
 function mrca(a, b) {
   while (a !== b) {
@@ -143,7 +143,10 @@ function seededRandom(seed) {  // mulberry32
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
 }
 function hashStr(s) { let h = 2166136261; for (const c of s) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); } return h >>> 0; }
-function today() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; }
+// the daily plant changes at midnight California time, for everyone
+function today() {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Los_Angeles", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+}
 function dailySecret(dateStr) {
   const p = pool("medium").slice(0, 600).sort((a, b) => a.id - b.id);
   return pickSecret(p, "balanced", seededRandom(hashStr("archaeplastida:" + dateStr)));
@@ -157,11 +160,16 @@ function newGame(mode) {
   if (mode === "daily") {
     const date = today();
     const saved = JSON.parse(localStorage.getItem("arch-daily-v2") || "null");
-    const secret = dailySecret(date);
+    let secret = dailySecret(date);
+    const resume = saved && saved.date === date;
+    // a game already started today keeps its plant even if the data was updated since
+    if (resume && saved.secret && tipByName.get(saved.secret)) secret = tipByName.get(saved.secret);
     G = { mode, date, secret, guesses: [], hints: 0, over: false, won: false };
-    if (saved && saved.date === date) {
+    if (resume) {
       G.guesses = saved.guesses.map(s => tipByName.get(s)).filter(Boolean);
-      G.hints = saved.hints; G.hintLog = saved.hintLog || []; G.over = saved.over; G.won = saved.won;
+      G.hints = saved.hints; G.over = saved.over; G.won = saved.won;
+      // hint entries refer to tree nodes, which are only valid for the same data build
+      G.hintLog = saved.built === DATA_BUILT ? saved.hintLog || [] : [];
     }
   } else {
     const p = pool($("pool").value, scope);
@@ -178,7 +186,7 @@ function newGame(mode) {
 }
 function save() {
   if (G.mode !== "daily") return;
-  localStorage.setItem("arch-daily-v2", JSON.stringify({ date: G.date, guesses: G.guesses.map(t => t.sci), hints: G.hints, hintLog: G.hintLog || [], over: G.over, won: G.won }));
+  localStorage.setItem("arch-daily-v2", JSON.stringify({ date: G.date, secret: G.secret.sci, built: DATA_BUILT, guesses: G.guesses.map(t => t.sci), hints: G.hints, hintLog: G.hintLog || [], over: G.over, won: G.won }));
 }
 
 function makeGuess(t) {
