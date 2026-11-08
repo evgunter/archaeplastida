@@ -119,3 +119,6 @@ ul.sugg li.none { color: var(--muted); cursor: default; }
 #info .summary { font-size: .92rem; line-height: 1.5; }
 #info .mono-note { font-size: .85rem; color: var(--muted); border-left: 3px solid var(--hl); padding-left: 8px; }
 #info .lineage { font-size: .8rem; color: var(--muted); line-height: 1.6; margin-top: 8px; }
+#info .thumbs img { opacity: .75; outline: 2px solid transparent; outline-offset: 1px; }
+#info .thumbs img:hover { opacity: 1; }
+#info .thumbs img.on { opacity: 1; outline-color: var(--accent); }

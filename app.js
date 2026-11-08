@@ -569,24 +569,27 @@ function openInfo(t) {
     <div class="lineage">${lineage.reverse().map(x => `<span title="${esc(cladeTitle(x))}">${cladeLabelHTML(x, { short: true })}</span>`).join(" › ")}</div>`;
   if (!dlg.open) dlg.showModal();
   const fill = d => {
-    if (body.dataset.tip !== String(t.node)) return;  // a different plant was opened meanwhile
+    if (body.dataset.showing !== String(t.node)) return;  // a different plant was opened meanwhile
     const photos = (d.taxon_photos || []).map(p => p.photo).filter(p => p && p.medium_url).slice(0, 12);
     const main = body.querySelector(".gallery .main");
     const show = p => { main.innerHTML = `<img src="${esc(p.medium_url)}" alt=""><div class="attr">${esc(p.attribution || "")}</div>`; };
     if (photos.length) {
       show(photos[0]);
       body.querySelector(".thumbs").innerHTML = photos.map((p, i) => `<img loading="lazy" src="${esc(p.square_url)}" data-i="${i}" title="${esc(p.attribution || "")}" alt="">`).join("");
-      body.querySelector(".thumbs").onclick = e => { const i = e.target.dataset.i; if (i !== undefined) show(photos[+i]); };
+      const thumbs = body.querySelector(".thumbs");
+      const select = i => { show(photos[i]); thumbs.querySelectorAll("img").forEach(im => im.classList.toggle("on", +im.dataset.i === i)); };
+      thumbs.onclick = e => { const i = e.target.dataset.i; if (i !== undefined) select(+i); };
+      select(0);
     }
     body.querySelector(".summary").innerHTML = d.wikipedia_summary ? `<p>${safeSummary(d.wikipedia_summary)}</p>` : "";
     if (d.wikipedia_url) body.querySelector(".wiki").innerHTML = ` · <a href="${esc(d.wikipedia_url)}" target="_blank" rel="noopener">Wikipedia</a>`;
   };
-  body.dataset.tip = t.node;
+  body.dataset.showing = t.node;
   if (infoCache.has(t.id)) return fill(infoCache.get(t.id));
   fetch(`https://api.inaturalist.org/v1/taxa/${t.id}?locale=en`)
     .then(r => r.ok ? r.json() : Promise.reject(r.status))
     .then(j => { const d = (j.results || [])[0] || {}; infoCache.set(t.id, d); fill(d); })
-    .catch(() => { if (body.dataset.tip === String(t.node)) body.querySelector(".summary").innerHTML = `<span class="cnt">Couldn't load more from iNaturalist.</span>`; });
+    .catch(() => { if (body.dataset.showing === String(t.node)) body.querySelector(".summary").innerHTML = `<span class="cnt">Couldn't load more from iNaturalist.</span>`; });
 }
 
 // ---------------------------------------------------------------- autocomplete
