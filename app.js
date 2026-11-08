@@ -80,7 +80,8 @@ function cladeLabelHTML(i, { short = false } = {}) {
 // names stored as [name, rank, common, inClade, total, cladeSize] are approximate:
 // the taxon isn't exactly a clade in this tree
 const approxNote = n => `≈ ${n[0]} isn't exactly a clade in this tree: ${n[3]} of its ${n[4]} California species fall in this clade` +
-  (n[5] > n[3] ? `, along with ${n[5] - n[3]} species from other groups` : "") + ".";
+  (n[5] > n[3] ? `, along with ${n[5] - n[3]} species from other groups` : "") + "." +
+  (["genus", "family"].includes(n[1]) ? " " + groupNote(n[1], n[0]) : "");
 function cladeTitle(i) {
   const ns = namesOf(i);
   let t = ns.map(n => `${n[0]}${n[1] ? " (" + n[1] + ")" : ""}${n[2] ? " – " + n[2] : ""}${n.length > 3 ? "\n  " + approxNote(n) : ""}`).join("\n");
@@ -88,9 +89,83 @@ function cladeTitle(i) {
 }
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const badge = m => m ? `<span class="badge ${m}">${{ e: "endemic", n: "native", i: "introduced" }[m]}</span>` : "";
+// ---------------------------------------------------------------- monophyly of genera & families
+// Is a genus's (or family's) set of California species exactly one clade in
+// this tree? If not, reconstruct membership on the tree by parsimony (Sankoff,
+// equal cost for gaining and losing membership, outgroup = non-member): if the
+// group's MRCA is most parsimoniously a member, the group is paraphyletic
+// (other groups nested inside it); if not, polyphyletic (separate origins).
+const groupCache = new Map();
+const genusOf = t => t.sci.split(" ")[0];
+let groupIndex = null;
+function groupStatus(rank, name) {
+  const key = rank + ":" + name;
+  if (groupCache.has(key)) return groupCache.get(key);
+  if (!groupIndex) {
+    groupIndex = new Map();
+    for (const t of tips) for (const k of ["genus:" + genusOf(t), "family:" + t.family]) {
+      if (!groupIndex.has(k)) groupIndex.set(k, []);
+      groupIndex.get(k).push(t);
+    }
+  }
+  const members = groupIndex.get(key) || [];
+  let res = { mono: true, n: members.length };
+  if (members.length >= 2) {
+    const C = members.map(t => t.node).reduce(mrca);
+    const isMember = new Set(members.map(t => t.node));
+    const inside = [];
+    for (let x = C; x < end[C]; x++) if (isTip[x]) inside.push(x);
+    if (inside.length > members.length) {
+      // count members / tips below every node of C's subtree
+      const n = end[C] - C, mem = new Int32Array(n), tot = new Int32Array(n);
+      const c0 = new Float64Array(n), c1 = new Float64Array(n);  // parsimony cost if not member / member
+      for (let x = end[C] - 1; x >= C; x--) {
+        const i = x - C;
+        if (isTip[x]) {
+          tot[i]++;
+          if (isMember.has(x)) { mem[i]++; c0[i] = Infinity; } else c1[i] = Infinity;
+        }
+        if (x > C) {
+          const pi = parent[x] - C;
+          mem[pi] += mem[i]; tot[pi] += tot[i];
+          c0[pi] += Math.min(c0[i], c1[i] + 1); c1[pi] += Math.min(c1[i], c0[i] + 1);
+        }
+      }
+      const asMember = c1[0] + 1, asOther = c0[0];  // +1: membership arising above C
+      let memberClades = 0;
+      for (let x = C; x < end[C]; x++) {
+        const i = x - C, pi = parent[x] - C, top = x === C;
+        if (mem[i] === tot[i] && (top || mem[pi] !== tot[pi])) memberClades++;
+      }
+      const para = asMember, poly = asOther;
+      const others = new Map();
+      for (const x of inside) if (!isMember.has(x)) {
+        const k = rank === "genus" ? genusOf(tipOfNode.get(x)) : tipOfNode.get(x).family || genusOf(tipOfNode.get(x));
+        others.set(k, (others.get(k) || 0) + 1);
+      }
+      res = { mono: false, n: members.length, clade: C, kind: para < poly ? "paraphyletic" : poly < para ? "polyphyletic" : "non-monophyletic",
+              memberClades, others: [...others.entries()].sort((a, b) => b[1] - a[1]) };
+    }
+  }
+  groupCache.set(key, res);
+  return res;
+}
+function groupNote(rank, name) {
+  const g = groupStatus(rank, name);
+  if (g.mono) return "";
+  const list = g.others.slice(0, 6).map(([k, c]) => `${k}${c > 1 ? ` (${c})` : ""}`).join(", ") + (g.others.length > 6 ? ", …" : "");
+  const outsiders = g.others.reduce((a, b) => a + b[1], 0);
+  return `${name} is ${g.kind} in this tree: its ${g.n} California species fall in ${g.memberClades} separate clades, ` +
+    `and their smallest shared clade also contains ${outsiders} species of other ${rank === "genus" ? "genera" : "families"}: ${list}.`;
+}
+function monoBadge(t) {
+  const g = groupStatus("genus", genusOf(t));
+  return g.mono ? "" : `<span class="badge np" title="${esc(groupNote("genus", genusOf(t)))}">${g.kind} genus</span>`;
+}
+
 function tipHTML(t, thumb = true) {
-  const c = t.common ? `<span class="common">${esc(t.common)} ${badge(t.means)}</span><span class="sci">${esc(t.sci)}</span>`
-                     : `<span class="common"><i>${esc(t.sci)}</i> ${badge(t.means)}</span>`;
+  const c = t.common ? `<span class="common">${esc(t.common)} ${badge(t.means)}</span><span class="sci">${esc(t.sci)} ${monoBadge(t)}</span>`
+                     : `<span class="common"><i>${esc(t.sci)}</i> ${badge(t.means)} ${monoBadge(t)}</span>`;
   const img = thumb ? (t.photo ? `<img class="thumb" loading="lazy" src="${photoUrl(t.photo, "square")}" title="${esc(t.attr)}" alt="">` : `<span class="thumb"></span>`) : "";
   return `${img}<span class="names">${c}</span>`;
 }
@@ -266,8 +341,8 @@ function render() {
     rv.hidden = false;
     const lineage = [];
     for (let x = parent[s.node]; x >= 0; x = parent[x]) if (namesOf(x).length) lineage.push(namesOf(x)[0][0]);
-    rv.innerHTML = `${s.photo ? `<img src="${photoUrl(s.photo)}" title="${esc(s.attr)}" alt="">` : ""}
-      <div><div style="font-size:1.3rem">${tipHTML(s, false)}</div>
+    rv.innerHTML = `${s.photo ? `<img src="${photoUrl(s.photo)}" title="${esc(s.attr)}" alt="" data-tip="${s.node}">` : ""}
+      <div><div style="font-size:1.3rem" data-tip="${s.node}">${tipHTML(s, false)}</div>
       <div>${s.count.toLocaleString()} research-grade observations in California</div>
       <div><a href="https://www.inaturalist.org/taxa/${s.id}" target="_blank" rel="noopener">iNaturalist</a> ·
            <a href="https://www.calflora.org/app/taxon?crn=&taxon=${encodeURIComponent(s.sci)}" target="_blank" rel="noopener">Calflora</a> ·
@@ -296,7 +371,7 @@ function renderList(best) {
   ol.innerHTML = rows.map(({ g, m }) => {
     const win = g === G.secret;
     const pct = win ? 120 : Math.max(6, 120 * (1 - Math.log(size[m]) / maxLog));
-    return `<li class="${win ? "win" : ""}">${tipHTML(g)}
+    return `<li class="${win ? "win" : ""}" data-tip="${g.node}">${tipHTML(g)}
       <div class="clade" title="${esc(cladeTitle(m))}">${win ? "<span class='cname'>✔ correct!</span>" :
         `<div class="cname">${cladeLabelHTML(m, { short: true })}</div><div class="csize">${size[m].toLocaleString()} species</div>`}
         <div class="bar" style="width:${pct.toFixed(0)}px"></div></div></li>`;
@@ -349,7 +424,7 @@ function renderTree() {
       row = `<span class="tnode secret${fr(x)}">??? secret plant</span>`;
     } else if (isTip[x]) {
       const t = tipOfNode.get(x);
-      row = `<span class="tnode ${x === secret ? "secret found" : ""}${fr(x)}">${tipHTML(t)}</span>`;
+      row = `<span class="tnode ${x === secret ? "secret found" : ""}${fr(x)}" data-tip="${x}">${tipHTML(t)}</span>`;
     } else {
       row = `<span class="tnode internal ${onPath ? "path" : ""}${fr(x)}" title="${esc(cladeTitle(x))}">${cladeLabelHTML(x)} <span class="cnt">${size[x].toLocaleString()} spp.</span></span>`;
     }
@@ -458,6 +533,62 @@ const NOT_PLANTS = [
   [["mushroom", "fungus", "fungi"], "Fungi are more closely related to animals than to plants."],
 ];
 
+// ---------------------------------------------------------------- species info popup
+// Opens instantly with what's already loaded; photos and the Wikipedia summary
+// are fetched from iNaturalist only when a plant is clicked (cached after).
+const infoCache = new Map();
+function safeSummary(html) {  // keep text plus italics/bold only
+  const doc = new DOMParser().parseFromString(html || "", "text/html");
+  const walk = n => [...n.childNodes].map(c => {
+    if (c.nodeType === 3) return esc(c.textContent);
+    if (c.nodeType !== 1) return "";
+    const tag = c.tagName.toLowerCase(), inner = walk(c);
+    return ["i", "em", "b", "strong"].includes(tag) ? `<${tag}>${inner}</${tag}>` : inner;
+  }).join("");
+  return walk(doc.body);
+}
+function openInfo(t) {
+  const dlg = $("info"), body = $("info-body");
+  const lineage = [];
+  for (let x = parent[t.node]; x >= 0; x = parent[x]) if (namesOf(x).length) lineage.push(x);
+  const g = groupStatus("genus", genusOf(t)), f = t.family ? groupStatus("family", t.family) : { mono: true };
+  const notes = [g.mono ? "" : groupNote("genus", genusOf(t)), f.mono ? "" : groupNote("family", t.family)].filter(Boolean);
+  const q = encodeURIComponent(t.sci);
+  body.innerHTML = `
+    <div class="info-head">${tipHTML(t, false)}</div>
+    <div class="gallery"><div class="main">${t.photo ? `<img src="${photoUrl(t.photo)}" alt=""><div class="attr">${esc(t.attr)}</div>` : ""}</div>
+      <div class="thumbs"></div></div>
+    <p class="facts">${t.family ? `Family ${esc(t.family)} · ` : ""}${t.count.toLocaleString()} research-grade observations in California</p>
+    ${notes.map(n => `<p class="mono-note">⚠ ${esc(n)}</p>`).join("")}
+    <div class="summary"><span class="cnt">Loading…</span></div>
+    <p class="links"><a href="https://www.inaturalist.org/taxa/${t.id}" target="_blank" rel="noopener">iNaturalist</a> ·
+      <a href="https://www.inaturalist.org/observations?taxon_id=${t.id}&place_id=14" target="_blank" rel="noopener">California observations</a> ·
+      <a href="https://www.calflora.org/app/taxon?crn=&taxon=${q}" target="_blank" rel="noopener">Calflora</a> ·
+      <a href="https://ucjeps.berkeley.edu/eflora/search_eflora.php?name=${q}" target="_blank" rel="noopener">Jepson eFlora</a>
+      <span class="wiki"></span></p>
+    <div class="lineage">${lineage.reverse().map(x => `<span title="${esc(cladeTitle(x))}">${cladeLabelHTML(x, { short: true })}</span>`).join(" › ")}</div>`;
+  if (!dlg.open) dlg.showModal();
+  const fill = d => {
+    if (body.dataset.tip !== String(t.node)) return;  // a different plant was opened meanwhile
+    const photos = (d.taxon_photos || []).map(p => p.photo).filter(p => p && p.medium_url).slice(0, 12);
+    const main = body.querySelector(".gallery .main");
+    const show = p => { main.innerHTML = `<img src="${esc(p.medium_url)}" alt=""><div class="attr">${esc(p.attribution || "")}</div>`; };
+    if (photos.length) {
+      show(photos[0]);
+      body.querySelector(".thumbs").innerHTML = photos.map((p, i) => `<img loading="lazy" src="${esc(p.square_url)}" data-i="${i}" title="${esc(p.attribution || "")}" alt="">`).join("");
+      body.querySelector(".thumbs").onclick = e => { const i = e.target.dataset.i; if (i !== undefined) show(photos[+i]); };
+    }
+    body.querySelector(".summary").innerHTML = d.wikipedia_summary ? `<p>${safeSummary(d.wikipedia_summary)}</p>` : "";
+    if (d.wikipedia_url) body.querySelector(".wiki").innerHTML = ` · <a href="${esc(d.wikipedia_url)}" target="_blank" rel="noopener">Wikipedia</a>`;
+  };
+  body.dataset.tip = t.node;
+  if (infoCache.has(t.id)) return fill(infoCache.get(t.id));
+  fetch(`https://api.inaturalist.org/v1/taxa/${t.id}?locale=en`)
+    .then(r => r.ok ? r.json() : Promise.reject(r.status))
+    .then(j => { const d = (j.results || [])[0] || {}; infoCache.set(t.id, d); fill(d); })
+    .catch(() => { if (body.dataset.tip === String(t.node)) body.querySelector(".summary").innerHTML = `<span class="cnt">Couldn't load more from iNaturalist.</span>`; });
+}
+
 // ---------------------------------------------------------------- autocomplete
 let sugg = [], sel = -1;
 // in practice mode with a clade limit, guesses are restricted to that clade
@@ -534,6 +665,14 @@ function wire() {
   $("pool").onchange = $("spread").onchange = () => { if (G.mode === "practice") newGame("practice"); };
   wireScope();
   $("btn-help").onclick = () => $("help").showModal();
+  document.addEventListener("click", e => {
+    const el = e.target.closest("[data-tip]");
+    if (!el || e.target.closest("a, .badge, .approx")) return;
+    const t = tipOfNode.get(+el.dataset.tip);
+    if (t) openInfo(t);
+  });
+  $("info-close").onclick = () => $("info").close();
+  $("info").addEventListener("click", e => { if (e.target === $("info")) $("info").close(); });  // backdrop
   $("btn-giveup").onclick = () => { if (confirm("Reveal the answer?")) { G.over = true; save(); render(); } };
   $("btn-hint").onclick = () => {
     const h = nextHint(); if (h == null) return;

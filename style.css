@@ -101,3 +101,21 @@ ul.sugg { position: absolute; z-index: 6; left: 0; right: 0; margin: 2px 0 0; pa
 ul.sugg li { padding: 6px 10px; cursor: pointer; }
 ul.sugg li.sel, ul.sugg li:hover { background: var(--accent-soft); }
 ul.sugg li.none { color: var(--muted); cursor: default; }
+/* non-monophyletic genus badge */
+.badge.np { background: transparent; color: var(--muted); border: 1px solid var(--line); font-weight: 500; cursor: help; }
+/* clickable plants */
+[data-tip] { cursor: pointer; }
+.tnode[data-tip]:hover, #guess-list li[data-tip]:hover { background: var(--accent-soft); }
+/* species info popup */
+#info { width: min(680px, calc(100vw - 32px)); padding: 18px 18px 14px; }
+#info .close { position: absolute; right: 12px; top: 12px; padding: 2px 9px; }
+#info .info-head { font-size: 1.2rem; padding-right: 40px; }
+#info .gallery { margin: 12px 0 6px; }
+#info .gallery .main img { width: 100%; max-height: 420px; object-fit: contain; border-radius: 10px; background: var(--bg); }
+#info .attr { font-size: .75rem; color: var(--muted); }
+#info .thumbs { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+#info .thumbs img { width: 48px; height: 48px; object-fit: cover; border-radius: 6px; cursor: pointer; }
+#info .facts, #info .links { font-size: .9rem; }
+#info .summary { font-size: .92rem; line-height: 1.5; }
+#info .mono-note { font-size: .85rem; color: var(--muted); border-left: 3px solid var(--hl); padding-left: 8px; }
+#info .lineage { font-size: .8rem; color: var(--muted); line-height: 1.6; margin-top: 8px; }
