@@ -36,3 +36,7 @@ can switch to "even across families" or "even across species".
 
 Hints: **narrower clade** names a smaller group containing the secret, and **list genera**
 lists every genus in the clade you've narrowed it to.
+
+When changing `app.js`, `style.css` or `data/game.json`, bump the version number in
+`index.html` (`?v=` on both links) and `ASSET_VERSION` at the top of `app.js`. Otherwise
+browsers, especially on phones, may keep using cached old files.

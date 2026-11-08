@@ -1,4 +1,6 @@
 "use strict";
+// Must match the ?v= on app.js in index.html; bump both on every change.
+const ASSET_VERSION = 7;
 // ---------------------------------------------------------------- data
 let N, parent, depth, end, isTip, tips, size, tipByName = new Map();
 const PHOTO = { o: "https://inaturalist-open-data.s3.amazonaws.com/photos/", s: "https://static.inaturalist.org/photos/" };
@@ -12,7 +14,7 @@ function photoUrl(code, kind = "medium") {
 }
 
 async function load() {
-  const res = await fetch("data/game.json");
+  const res = await fetch("data/game.json?v=" + ASSET_VERSION);
   const d = await res.json();
   N = d.nodes; DATA_BUILT = d.built;
   const n = N.length;
