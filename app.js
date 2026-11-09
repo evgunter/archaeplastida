@@ -1,6 +1,6 @@
 "use strict";
 // Must match the ?v= on app.js in index.html; bump both on every change.
-const ASSET_VERSION = 13;
+const ASSET_VERSION = 14;
 // ---------------------------------------------------------------- data
 let N, parent, depth, end, isTip, tips, size, tipByName = new Map();
 const PHOTO = { o: "https://inaturalist-open-data.s3.amazonaws.com/photos/", s: "https://static.inaturalist.org/photos/" };
@@ -189,6 +189,16 @@ function pickSecret(p, spread, rnd) {
     if (r < 0 || i === groups.length - 1) return groups[i][Math.floor(rnd() * groups[i].length)];
   }
 }
+// the probability pickSecret gives each species in pool p
+function secretDistribution(p, spread) {
+  const fams = new Map();
+  for (const t of p) { const f = familyOf(t); if (!fams.has(f)) fams.set(f, []); fams.get(f).push(t); }
+  const w = g => spread === "family" ? 1 : spread === "species" ? g.length : Math.sqrt(g.length);
+  let W = 0; for (const g of fams.values()) W += w(g);
+  const prob = new Map();
+  for (const g of fams.values()) for (const t of g) prob.set(t, w(g) / W / g.length);
+  return prob;
+}
 function seededRandom(seed) {  // mulberry32
   return () => { seed |= 0; seed = (seed + 0x6D2B79F5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
@@ -198,9 +208,9 @@ function hashStr(s) { let h = 2166136261; for (const c of s) { h ^= c.charCodeAt
 function today() {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Los_Angeles", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
 }
+const dailyPool = () => pool("medium").slice(0, 600).sort((a, b) => a.id - b.id);
 function dailySecret(dateStr) {
-  const p = pool("medium").slice(0, 600).sort((a, b) => a.id - b.id);
-  return pickSecret(p, "balanced", seededRandom(hashStr("archaeplastida:" + dateStr)));
+  return pickSecret(dailyPool(), "balanced", seededRandom(hashStr("archaeplastida:" + dateStr)));
 }
 
 // ---------------------------------------------------------------- game state
@@ -215,7 +225,7 @@ function newGame(mode, seed = null) {
     const resume = saved && saved.date === date;
     // a game already started today keeps its plant even if the data was updated since
     if (resume && saved.secret && tipByName.get(saved.secret)) secret = tipByName.get(saved.secret);
-    G = { mode, date, secret, guesses: [], hints: 0, over: false, won: false };
+    G = { mode, date, secret, guesses: [], hints: 0, over: false, won: false, secretPool: dailyPool(), spread: "balanced" };
     if (resume) {
       G.guesses = saved.guesses.map(s => tipByName.get(s)).filter(Boolean);
       G.hints = saved.hints; G.over = saved.over; G.won = saved.won;
@@ -227,6 +237,7 @@ function newGame(mode, seed = null) {
     if (seed === null) seed = Math.floor(Math.random() * 2 ** 32);
     const p = pool($("pool").value, scope);
     G = { mode, seed, secret: pickSecret(p, $("spread").value, seededRandom(seed)), guesses: [], hints: 0, over: false, won: false,
+          secretPool: p, spread: $("spread").value,
           start: typeof scope === "number" ? scope : 0, poolSize: p.length, scope };
   }
   $("btn-daily").classList.toggle("active", mode === "daily");
@@ -384,41 +395,44 @@ function plantEmoji(t) {
 }
 
 // ---------------------------------------------------------------- play quality
-// The player's candidate set starts as every species that could be the secret
-// (all of them, or the practice clade limit) and after each guess shrinks to
-// the species that would have produced the same shared clade. A guess's
-// quality compares how much it rules out on average (over the candidates at
-// that point, i.e. before knowing the answer) with the best possible guess.
+// Candidates are weighted by their actual chance of having been picked as the
+// secret (the game's pool and family weighting), restricted to what's still
+// consistent with the guesses so far. A guess's quality compares how much of
+// that probability it would rule out on average (before knowing the answer)
+// with the best possible guess at that point.
 function scopeTips(sc) {
   if (sc === null || sc === undefined) return tips;
   return typeof sc === "number" ? tips.filter(t => isAnc(sc, t.node)) : tips.filter(PRESETS[sc].test);
 }
-// expected fraction of candidates B ruled out by guessing tip node g, given
-// prefix counts P of B over preorder (count in subtree v = P[end[v]] - P[v])
-function expectedRuledOut(g, inB, P, nB) {
-  const cnt = v => P[end[v]] - P[v];
+// expected fraction of candidate probability ruled out by guessing tip node g,
+// given prefix sums P of candidate probability over preorder
+// (mass in subtree v = P[end[v]] - P[v]) and total mass M
+function expectedRuledOut(g, P, M) {
+  const mass = v => P[end[v]] - P[v];
   let sumSq = 0, prev = g;
-  for (let v = parent[g]; v >= 0; prev = v, v = parent[v]) { const c = cnt(v) - cnt(prev); sumSq += c * c; }
-  // if g itself is a candidate it's a cell of one that leaves nothing remaining
-  return 1 - sumSq / (nB * nB);
+  // each ancestor v is one possible outcome (shared clade = v), holding the
+  // candidates below v but not on g's side; g itself (a correct guess) leaves nothing
+  for (let v = parent[g]; v >= 0; prev = v, v = parent[v]) { const c = mass(v) - mass(prev); sumSq += c * c; }
+  return 1 - sumSq / (M * M);
 }
 let qualityCache = null;
 function playQuality() {
   const key = G.secret.node + "|" + G.guesses.map(g => g.node).join(",") + "|" + (G.hintLog || []).map(h => h.n + "@" + h.at).join(",");
   if (qualityCache && qualityCache.key === key) return qualityCache.val;
   const guessable = scopeTips(G.mode === "practice" ? G.scope : null);
-  const inB = new Uint8Array(N.length);
-  for (const t of guessable) inB[t.node] = 1;
-  const P = new Int32Array(N.length + 1);
-  const recount = () => { let n = 0; for (let i = 0; i < N.length; i++) { P[i] = n; n += inB[i]; } P[N.length] = n; return n; };
-  const restrict = (keep) => { for (let i = 0; i < N.length; i++) if (inB[i] && !keep(i)) inB[i] = 0; };
+  const w = new Float64Array(N.length);
+  for (const [t, pr] of secretDistribution(G.secretPool, G.spread)) w[t.node] = pr;
+  if (!w[G.secret.node]) w[G.secret.node] = 1e-9;  // e.g. a resumed daily after a data update
+  const P = new Float64Array(N.length + 1);
+  const total = () => { let m = 0, n = 0; for (let i = 0; i < N.length; i++) { P[i] = m; m += w[i]; if (w[i] > 0) n++; } P[N.length] = m; return [m, n]; };
+  const restrict = (keep) => { for (let i = 0; i < N.length; i++) if (w[i] && !keep(i)) w[i] = 0; };
   const per = [];
   G.guesses.forEach((g, i) => {
     for (const h of G.hintLog || []) if (h.t === "c" && h.at === i) restrict(x => isAnc(h.n, x));
-    const nB = recount();
+    const [M, nLeft] = total();
     let best = 0;
-    for (const t of guessable) { const e = expectedRuledOut(t.node, inB, P, nB); if (e > best) best = e; }
-    const mine = expectedRuledOut(g.node, inB, P, nB);
+    for (const t of guessable) { const e = expectedRuledOut(t.node, P, M); if (e > best) best = e; }
+    const mine = expectedRuledOut(g.node, P, M);
     // what this guess actually told the player
     if (g === G.secret) restrict(() => false);
     else {
@@ -426,8 +440,8 @@ function playQuality() {
       let side = g.node; while (parent[side] !== m) side = parent[side];
       restrict(x => isAnc(m, x) && !isAnc(side, x));
     }
-    const after = recount();
-    per.push({ before: nB, after, ruledOut: nB ? 1 - after / nB : 0, expected: mine, best,
+    const [after] = total();
+    per.push({ before: nLeft, ruledOut: M ? 1 - after / M : 0, expected: mine, best,
                quality: best > 0 ? Math.min(1, mine / best) : 1 });
   });
   const val = { per, overall: per.length ? per.reduce((a, b) => a + b.quality, 0) / per.length : null };
@@ -444,8 +458,9 @@ function renderList(best) {
   const rows = G.guesses.map((g, i) => ({ g, i, m: mrca(g.node, G.secret.node), q: Q.per[i] }));  // guess order
   ol.innerHTML = rows.map(({ g, i, m, q }) => {
     const win = g === G.secret;
-    const qTitle = `Guess ${i + 1}: ruled out ${pct(q.ruledOut)} of the ${q.before.toLocaleString()} candidates left. ` +
-      `On average (before knowing the answer) it would rule out ${pct(q.expected)}; the best possible guess, ${pct(q.best)}. Quality ${pct(q.quality)}.`;
+    const qTitle = `Guess ${i + 1}: ruled out ${pct(q.ruledOut)} of the remaining chance (${q.before.toLocaleString()} possible secrets were left, ` +
+      `weighted by how the game picks them). On average, before knowing the answer, it would rule out ${pct(q.expected)}; ` +
+      `the best possible guess, ${pct(q.best)}. Quality ${pct(q.quality)}.`;
     return `<li class="${win ? "win" : ""}" data-tip="${g.node}">${tipHTML(g)}
       <div class="clade">${win ? "<span class='cname'>✔ correct!</span>" :
         `<div class="cname" title="${esc(cladeTitle(m))}">${cladeLabelHTML(m, { short: true })}</div><div class="csize">${size[m].toLocaleString()} species</div>`}
