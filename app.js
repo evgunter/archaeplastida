@@ -1,6 +1,6 @@
 "use strict";
 // Must match the ?v= on app.js in index.html; bump both on every change.
-const ASSET_VERSION = 9;
+const ASSET_VERSION = 10;
 // ---------------------------------------------------------------- data
 let N, parent, depth, end, isTip, tips, size, tipByName = new Map();
 const PHOTO = { o: "https://inaturalist-open-data.s3.amazonaws.com/photos/", s: "https://static.inaturalist.org/photos/" };
@@ -93,9 +93,8 @@ const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;",
 const badge = m => m ? `<span class="badge ${m}">${{ e: "endemic", n: "native", i: "introduced" }[m]}</span>` : "";
 // ---------------------------------------------------------------- monophyly of genera & families
 // Is a genus's (or family's) set of California species a clade in this tree?
-// Polytomies count as unresolved: the group is flagged only if the tree puts
-// species of other groups among its species. Whether that makes it para- or
-// polyphyletic can't be told from extant species alone, so no claim is made.
+// It's flagged when the smallest clade containing all of them also contains
+// other species, so guesses can narrow to a clade spanning several groups.
 const groupCache = new Map();
 const genusOf = t => t.sci.split(" ")[0];
 let groupIndex = null;
@@ -112,35 +111,17 @@ function groupStatus(rank, name) {
   const members = groupIndex.get(key) || [];
   let res = { mono: true, n: members.length };
   if (members.length >= 2) {
+    // flagged when the smallest clade holding the whole group also holds other
+    // species, i.e. a guess can narrow things to a clade spanning several groups
     const C = members.map(t => t.node).reduce(mrca);
-    const isMember = new Set(members.map(t => t.node));
-    const n = end[C] - C, mem = new Int32Array(n), tot = new Int32Array(n);
-    for (let x = end[C] - 1; x >= C; x--) {
-      if (isTip[x]) { tot[x - C]++; if (isMember.has(x)) mem[x - C]++; }
-      if (x > C) { mem[parent[x] - C] += mem[x - C]; tot[parent[x] - C] += tot[x - C]; }
-    }
-    // A polytomy means "unresolved", so the group only conflicts with the tree
-    // if some child of its MRCA mixes members and non-members; if every child
-    // is pure, some resolution of the polytomy makes the group a clade.
-    const kidsOf = x => { const out = []; for (let y = x + 1; y < end[x]; y = end[y]) out.push(y); return out; };
-    const mixed = kidsOf(C).filter(k => mem[k - C] > 0 && mem[k - C] < tot[k - C]);
-    if (mixed.length) {
-      // members' separate groups, counting unplaced species at one polytomy as one group
-      const groupParents = new Set();
-      for (let x = C; x < end[C]; x++) {
-        const i = x - C, top = x === C;
-        if (mem[i] === tot[i] && (top || mem[parent[x] - C] !== tot[parent[x] - C])) groupParents.add(top ? x : parent[x]);
-      }
-      // other groups interleaved with the members (inside mixed children of the MRCA)
-      const others = new Map();
-      for (const k of mixed) for (let x = k; x < end[k]; x++) if (isTip[x] && !isMember.has(x)) {
+    if (size[C] > members.length) {
+      const isMember = new Set(members.map(t => t.node)), others = new Map();
+      for (let x = C; x < end[C]; x++) if (isTip[x] && !isMember.has(x)) {
         const t = tipOfNode.get(x), g = rank === "genus" ? genusOf(t) : t.family || genusOf(t);
         others.set(g, (others.get(g) || 0) + 1);
       }
-      const unplaced = kidsOf(C).filter(k => isTip[k] && isMember.has(k)).length;
-      res = { mono: false, n: members.length, clade: C, unplaced,
-              kind: "non-monophyletic",
-              memberClades: groupParents.size, others: [...others.entries()].sort((a, b) => b[1] - a[1]) };
+      res = { mono: false, n: members.length, clade: C, kind: "non-monophyletic",
+              outsiders: size[C] - members.length, others: [...others.entries()].sort((a, b) => b[1] - a[1]) };
     }
   }
   groupCache.set(key, res);
@@ -150,8 +131,8 @@ function groupNote(rank, name) {
   const g = groupStatus(rank, name);
   if (g.mono) return "";
   const list = g.others.slice(0, 6).map(([k, c]) => `${k}${c > 1 ? ` (${c})` : ""}`).join(", ") + (g.others.length > 6 ? ", …" : "");
-  return `${name} is ${g.kind} in this tree: its California species are interleaved with ${rank === "genus" ? "other genera" : "other families"} (${list})` +
-    (g.unplaced ? `; ${g.unplaced} of its ${g.n} species have no resolved placement` : "") + ".";
+  return `${name} is non-monophyletic in this tree: the smallest clade containing all ${g.n} of its California species ` +
+    `also contains ${g.outsiders} species of other ${rank === "genus" ? "genera" : "families"}: ${list}.`;
 }
 function monoBadge(t) {
   const g = groupStatus("genus", genusOf(t));
