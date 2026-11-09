@@ -1,6 +1,6 @@
 "use strict";
 // Must match the ?v= on app.js in index.html; bump both on every change.
-const ASSET_VERSION = 11;
+const ASSET_VERSION = 12;
 // ---------------------------------------------------------------- data
 let N, parent, depth, end, isTip, tips, size, tipByName = new Map();
 const PHOTO = { o: "https://inaturalist-open-data.s3.amazonaws.com/photos/", s: "https://static.inaturalist.org/photos/" };
@@ -435,7 +435,7 @@ function playQuality() {
   return val;
 }
 const pct = x => `${Math.round(100 * x)}%`;
-const qualityEmoji = q => q >= 0.9 ? "🟩" : q >= 0.7 ? "🟨" : q >= 0.4 ? "🟧" : "🟥";
+const qualityEmoji = q => q >= 0.9 ? "🟩" : q >= 0.7 ? "🟨" : q > 0 ? "🟧" : "🟥";  // red: rules nothing out
 
 function renderList(best) {
   const sec = $("list-section"), ol = $("guess-list");

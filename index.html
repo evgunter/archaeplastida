@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Archaeplastida: guess the California plant</title>
-<link rel="stylesheet" href="style.css?v=11">
+<link rel="stylesheet" href="style.css?v=12">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌿</text></svg>">
 </head>
 <body>
@@ -81,7 +81,7 @@
   <p>A <span class="approx">≈</span> before a name means the group isn't exactly a clade in this tree. Hover over it to see how many of its species fall inside.</p>
   <p>The secret isn't chosen evenly among species, which would make more than one in five secrets a sunflower or pea relative. By default a family is picked first (bigger families somewhat more likely, weighted by the square root of their size), then a species within it. Practice mode lets you change this.</p>
   <p>In practice mode you can <strong>limit the secret to any named clade</strong>, such as ferns, Asteraceae, oaks, or land plants, or to algae or non-vascular plants. The game then starts with that clade already known. The difficulty setting is scaled to the clade: "easy" means its most-observed natives.</p>
-  <p><strong>Play quality</strong> scores each guess by how many of the remaining candidate species it would rule out on average, before you know the answer, compared with the best possible guess at that point. A score of 100% means no guess could have been more informative. The final score is the average over your guesses. Hover over a guess's score for details. In the copied result, 🟩 means at least 90%, 🟨 at least 70%, 🟧 at least 40%, and 🟥 below that.</p>
+  <p><strong>Play quality</strong> scores each guess by how many of the remaining candidate species it would rule out on average, before you know the answer, compared with the best possible guess at that point. A score of 100% means no guess could have been more informative. The final score is the average over your guesses. Hover over a guess's score for details. In the copied result, 🟩 means at least 90%, 🟨 at least 70%, 🟧 anything that rules out at least one species, and 🟥 a guess that can't rule anything out.</p>
   <p>Practice results come with a link that lets someone else play the same game.</p>
   <p>The <strong>daily</strong> plant is the same for everyone and changes at midnight California time.</p>
   <p>Badges: <span class="badge e">endemic</span> <span class="badge n">native</span> <span class="badge i">introduced</span>
@@ -98,6 +98,6 @@
 
 <footer>Photos © their iNaturalist observers (licenses shown on hover). <a href="https://github.com/evgunter/archaeplastida">Source &amp; methods</a></footer>
 <!-- bump ?v= on every change to app.js / style.css / data so browsers fetch the new files -->
-<script src="app.js?v=11"></script>
+<script src="app.js?v=12"></script>
 </body>
 </html>
