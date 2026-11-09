@@ -122,3 +122,4 @@ ul.sugg li.none { color: var(--muted); cursor: default; }
 #info .thumbs img { opacity: .75; outline: 2px solid transparent; outline-offset: 1px; }
 #info .thumbs img:hover { opacity: 1; }
 #info .thumbs img.on { opacity: 1; outline-color: var(--accent); }
+.clade .qual { color: var(--muted); font-size: .78rem; cursor: help; }

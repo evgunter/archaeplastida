@@ -1,6 +1,6 @@
 "use strict";
 // Must match the ?v= on app.js in index.html; bump both on every change.
-const ASSET_VERSION = 10;
+const ASSET_VERSION = 11;
 // ---------------------------------------------------------------- data
 let N, parent, depth, end, isTip, tips, size, tipByName = new Map();
 const PHOTO = { o: "https://inaturalist-open-data.s3.amazonaws.com/photos/", s: "https://static.inaturalist.org/photos/" };
@@ -207,7 +207,7 @@ function dailySecret(dateStr) {
 let G; // {mode, secret, guesses:[tip], hints:int, over:bool, won:bool, date}
 const $ = id => document.getElementById(id);
 
-function newGame(mode) {
+function newGame(mode, seed = null) {
   if (mode === "daily") {
     const date = today();
     const saved = JSON.parse(localStorage.getItem("arch-daily-v2") || "null");
@@ -223,8 +223,10 @@ function newGame(mode) {
       G.hintLog = saved.built === DATA_BUILT ? saved.hintLog || [] : [];
     }
   } else {
+    // practice games come from a seed, so a shared link recreates the same game
+    if (seed === null) seed = Math.floor(Math.random() * 2 ** 32);
     const p = pool($("pool").value, scope);
-    G = { mode, secret: pickSecret(p, $("spread").value, Math.random), guesses: [], hints: 0, over: false, won: false,
+    G = { mode, seed, secret: pickSecret(p, $("spread").value, seededRandom(seed)), guesses: [], hints: 0, over: false, won: false,
           start: typeof scope === "number" ? scope : 0, poolSize: p.length, scope };
   }
   $("btn-daily").classList.toggle("active", mode === "daily");
@@ -285,9 +287,11 @@ function render() {
   const st = $("status");
   const gcount = G.guesses.length;
   if (G.won) {
-    st.innerHTML = `<div class="big">🎉 Got it in ${gcount} guess${gcount === 1 ? "" : "es"}${G.hints ? ` (${G.hints} hint${G.hints > 1 ? "s" : ""})` : ""}!</div>`;
+    st.innerHTML = `<div class="big">${plantEmoji(s)} Got it in ${gcount} guess${gcount === 1 ? "" : "es"}${G.hints ? ` (${G.hints} hint${G.hints > 1 ? "s" : ""})` : ""}!</div>
+      <div class="sub">Play quality ${pct(playQuality().overall)}: how close your guesses came, on average, to the most informative guess available at each step.</div>`;
   } else if (G.over) {
-    st.innerHTML = `<div class="big">The answer was revealed.</div>`;
+    st.innerHTML = `<div class="big">The answer was revealed.</div>
+      ${gcount ? `<div class="sub">Play quality ${pct(playQuality().overall)}: how close your guesses came, on average, to the most informative guess available at each step.</div>` : ""}`;
   } else if (!gcount && !G.start) {
     st.innerHTML = `<div class="big">${G.mode === "daily" ? "Today's plant" : "A secret plant"} is waiting.</div>
       <div class="sub">It's one of ${(G.poolSize || tips.length).toLocaleString()} possible species${scope && PRESETS[scope] ? ` (${esc(PRESETS[scope].label)})` : ""}. Start with any plant you know.</div>`;
@@ -338,19 +342,116 @@ function lineageHTML(i) {
   return out.reverse().map(x => `<span title="${esc(cladeTitle(x))}">${cladeLabelHTML(x, { short: true })}</span>`).join(" › ");
 }
 
+// ---------------------------------------------------------------- plant emoji
+// The most specific emoji for a species: species, then genus, family, and the
+// named clades above it.
+const EMOJI = {
+  // species
+  "Helianthus annuus": "🌻", "Solanum lycopersicum": "🍅", "Solanum tuberosum": "🥔", "Solanum melongena": "🍆",
+  "Capsicum annuum": "🌶️", "Zea mays": "🌽", "Daucus carota": "🥕", "Allium sativum": "🧄", "Allium cepa": "🧅",
+  "Citrullus lanatus": "🍉", "Cucumis melo": "🍈", "Cucumis sativus": "🥒", "Persea americana": "🥑",
+  "Olea europaea": "🫒", "Cocos nucifera": "🥥", "Ananas comosus": "🍍", "Lactuca sativa": "🥬",
+  "Arachis hypogaea": "🥜", "Zingiber officinale": "🫚", "Coffea arabica": "☕", "Camellia sinensis": "🍵",
+  "Darlingtonia californica": "🐍", "Sequoia sempervirens": "🌲", "Sequoiadendron giganteum": "🌲",
+  "Brassica oleracea": "🥦", "Pisum sativum": "🫛", "Phaseolus vulgaris": "🫘", "Prunus persica": "🍑",
+  "Prunus avium": "🍒", "Citrus × sinensis": "🍊", "Citrus sinensis": "🍊", "Citrus limon": "🍋",
+  "Eschscholzia californica": "🧡", "Toxicodendron diversilobum": "🍂", "Cannabis sativa": "🍃",
+  // genera
+  Helianthus: "🌻", Rosa: "🌹", Tulipa: "🌷", Hibiscus: "🌺", Prunus: "🌸", Malus: "🍎", Pyrus: "🍐",
+  Fragaria: "🍓", Vitis: "🍇", Citrus: "🍋", Rubus: "🫐", Vaccinium: "🫐", Acer: "🍁", Quercus: "🌳",
+  Castanea: "🌰", Aesculus: "🌰", Juglans: "🌰", Corylus: "🌰", Notholithocarpus: "🌰", Trifolium: "☘️",
+  Oxalis: "☘️", Iris: "⚜️", Lilium: "⚜️", Lupinus: "🪻", Salvia: "🪻", Lavandula: "🪻", Delphinium: "🪻",
+  Hyacinthus: "🪻", Nymphaea: "🪷", Nuphar: "🪷", Nelumbo: "🪷", Mentha: "🌿", Cucurbita: "🎃", Phaseolus: "🫘",
+  Pisum: "🫛", Allium: "🧅", Brassica: "🥦", Opuntia: "🌵", Cylindropuntia: "🌵", Agave: "🌵", Yucca: "🌵",
+  Washingtonia: "🌴", Phoenix: "🌴", Eucalyptus: "🐨", Typha: "🌾", Musa: "🍌", Actinidia: "🥝", Mangifera: "🥭",
+  Cannabis: "🍃", Pinus: "🌲",
+  // families
+  Asteraceae: "🌼", Poaceae: "🌾", Cyperaceae: "🌾", Juncaceae: "🌾", Typhaceae: "🌾", Pinaceae: "🌲",
+  Cupressaceae: "🌲", Taxaceae: "🌲", Cactaceae: "🌵", Arecaceae: "🌴", Rosaceae: "🌸", Fabaceae: "🫛",
+  Lamiaceae: "🌿", Apiaceae: "🌿", Orchidaceae: "🌺", Liliaceae: "🌷", Iridaceae: "⚜️", Fagaceae: "🌳",
+  Salicaceae: "🌳", Betulaceae: "🌳", Platanaceae: "🌳", Sapindaceae: "🍁", Cucurbitaceae: "🎃",
+  Brassicaceae: "🥬", Solanaceae: "🍅", Vitaceae: "🍇", Ericaceae: "🫐", Grossulariaceae: "🫐",
+  Crassulaceae: "🪴", Nymphaeaceae: "🪷", Ephedraceae: "🌵",
+  // broader groups
+  Polypodiopsida: "🌿", Lycopodiopsida: "🌿", Bryophyta: "🌱", Marchantiophyta: "🌱", Anthocerotophyta: "🌱",
+  Rhodophyta: "🌊", Ulvophyceae: "🌊", Chlorophyta: "💧", Charophyceae: "💧", Zygnematophyceae: "💧",
+  Acrogymnospermae: "🌲", Angiospermae: "🌸",
+};
+function plantEmoji(t) {
+  for (const k of [t.sci, genusOf(t), t.family]) if (k && EMOJI[k]) return EMOJI[k];
+  for (let x = parent[t.node]; x >= 0; x = parent[x]) for (const n of namesOf(x)) if (EMOJI[n[0]]) return EMOJI[n[0]];
+  return "🌱";
+}
+
+// ---------------------------------------------------------------- play quality
+// The player's candidate set starts as every species that could be the secret
+// (all of them, or the practice clade limit) and after each guess shrinks to
+// the species that would have produced the same shared clade. A guess's
+// quality compares how much it rules out on average (over the candidates at
+// that point, i.e. before knowing the answer) with the best possible guess.
+function scopeTips(sc) {
+  if (sc === null || sc === undefined) return tips;
+  return typeof sc === "number" ? tips.filter(t => isAnc(sc, t.node)) : tips.filter(PRESETS[sc].test);
+}
+// expected fraction of candidates B ruled out by guessing tip node g, given
+// prefix counts P of B over preorder (count in subtree v = P[end[v]] - P[v])
+function expectedRuledOut(g, inB, P, nB) {
+  const cnt = v => P[end[v]] - P[v];
+  let sumSq = 0, prev = g;
+  for (let v = parent[g]; v >= 0; prev = v, v = parent[v]) { const c = cnt(v) - cnt(prev); sumSq += c * c; }
+  // if g itself is a candidate it's a cell of one that leaves nothing remaining
+  return 1 - sumSq / (nB * nB);
+}
+let qualityCache = null;
+function playQuality() {
+  const key = G.secret.node + "|" + G.guesses.map(g => g.node).join(",") + "|" + (G.hintLog || []).map(h => h.n + "@" + h.at).join(",");
+  if (qualityCache && qualityCache.key === key) return qualityCache.val;
+  const guessable = scopeTips(G.mode === "practice" ? G.scope : null);
+  const inB = new Uint8Array(N.length);
+  for (const t of guessable) inB[t.node] = 1;
+  const P = new Int32Array(N.length + 1);
+  const recount = () => { let n = 0; for (let i = 0; i < N.length; i++) { P[i] = n; n += inB[i]; } P[N.length] = n; return n; };
+  const restrict = (keep) => { for (let i = 0; i < N.length; i++) if (inB[i] && !keep(i)) inB[i] = 0; };
+  const per = [];
+  G.guesses.forEach((g, i) => {
+    for (const h of G.hintLog || []) if (h.t === "c" && h.at === i) restrict(x => isAnc(h.n, x));
+    const nB = recount();
+    let best = 0;
+    for (const t of guessable) { const e = expectedRuledOut(t.node, inB, P, nB); if (e > best) best = e; }
+    const mine = expectedRuledOut(g.node, inB, P, nB);
+    // what this guess actually told the player
+    if (g === G.secret) restrict(() => false);
+    else {
+      const m = mrca(g.node, G.secret.node);
+      let side = g.node; while (parent[side] !== m) side = parent[side];
+      restrict(x => isAnc(m, x) && !isAnc(side, x));
+    }
+    const after = recount();
+    per.push({ before: nB, after, ruledOut: nB ? 1 - after / nB : 0, expected: mine, best,
+               quality: best > 0 ? Math.min(1, mine / best) : 1 });
+  });
+  const val = { per, overall: per.length ? per.reduce((a, b) => a + b.quality, 0) / per.length : null };
+  qualityCache = { key, val };
+  return val;
+}
+const pct = x => `${Math.round(100 * x)}%`;
+const qualityEmoji = q => q >= 0.9 ? "🟩" : q >= 0.7 ? "🟨" : q >= 0.4 ? "🟧" : "🟥";
+
 function renderList(best) {
   const sec = $("list-section"), ol = $("guess-list");
   sec.hidden = !G.guesses.length;
-  const rows = G.guesses.map(g => ({ g, m: mrca(g.node, G.secret.node) }))
+  const Q = playQuality();
+  const rows = G.guesses.map((g, i) => ({ g, i, m: mrca(g.node, G.secret.node), q: Q.per[i] }))
     .sort((a, b) => depth[b.m] - depth[a.m] || size[a.m] - size[b.m]);
-  const maxLog = Math.log(tips.length);
-  ol.innerHTML = rows.map(({ g, m }) => {
+  ol.innerHTML = rows.map(({ g, i, m, q }) => {
     const win = g === G.secret;
-    const pct = win ? 120 : Math.max(6, 120 * (1 - Math.log(size[m]) / maxLog));
+    const qTitle = `Guess ${i + 1}: ruled out ${pct(q.ruledOut)} of the ${q.before.toLocaleString()} candidates left. ` +
+      `On average (before knowing the answer) it would rule out ${pct(q.expected)}; the best possible guess, ${pct(q.best)}. Quality ${pct(q.quality)}.`;
     return `<li class="${win ? "win" : ""}" data-tip="${g.node}">${tipHTML(g)}
-      <div class="clade" title="${esc(cladeTitle(m))}">${win ? "<span class='cname'>✔ correct!</span>" :
-        `<div class="cname">${cladeLabelHTML(m, { short: true })}</div><div class="csize">${size[m].toLocaleString()} species</div>`}
-        <div class="bar" style="width:${pct.toFixed(0)}px"></div></div></li>`;
+      <div class="clade">${win ? "<span class='cname'>✔ correct!</span>" :
+        `<div class="cname" title="${esc(cladeTitle(m))}">${cladeLabelHTML(m, { short: true })}</div><div class="csize">${size[m].toLocaleString()} species</div>`}
+        <div class="qual" title="${esc(qTitle)}">#${i + 1} · ruled out ${pct(q.ruledOut)} · quality ${pct(q.quality)}</div>
+        <div class="bar" style="width:${Math.max(4, 120 * q.quality).toFixed(0)}px"></div></div></li>`;
   }).join("");
 }
 
@@ -655,26 +756,49 @@ function wire() {
   $("btn-giveup").onclick = () => { if (confirm("Reveal the answer?")) { G.over = true; save(); render(); } };
   $("btn-hint").onclick = () => {
     const h = nextHint(); if (h == null) return;
-    G.hints++; (G.hintLog = G.hintLog || []).push({ t: "c", n: h }); save(); render();
+    G.hints++; (G.hintLog = G.hintLog || []).push({ t: "c", n: h, at: G.guesses.length }); save(); render();
   };
   $("btn-genera").onclick = () => {
     const b = bestClade(); if (generaHintUsed(b)) return;
-    G.hints++; (G.hintLog = G.hintLog || []).push({ t: "g", n: b }); save(); render();
+    G.hints++; (G.hintLog = G.hintLog || []).push({ t: "g", n: b, at: G.guesses.length }); save(); render();
   };
   $("btn-share").onclick = () => {
-    const rows = G.guesses.map(g => {
-      if (g === G.secret) return "🌸";
-      const sz = size[mrca(g.node, G.secret.node)];
-      return sz <= 10 ? "🟩" : sz <= 100 ? "🟨" : sz <= 1000 ? "🟧" : "🟫";
-    }).join("");
-    const head = G.mode === "daily" ? `Archaeplastida ${G.date}` : "Archaeplastida (practice)";
-    const txt = `${head}: ${G.won ? G.guesses.length + " guesses" : "gave up"}${G.hints ? `, ${G.hints} hint(s)` : ""}\n${rows}\n${location.href.split("#")[0]}`;
+    const Q = playQuality();
+    const rows = G.guesses.map((g, i) => g === G.secret ? plantEmoji(g) : qualityEmoji(Q.per[i].quality)).join("") + (G.won ? "" : "🏳️");
+    let head, link = location.origin + location.pathname;
+    if (G.mode === "daily") head = `Archaeplastida ${G.date}`;
+    else {
+      const prm = new URLSearchParams({ seed: G.seed.toString(36), pool: $("pool").value, spread: $("spread").value });
+      if (G.scope != null) prm.set("clade", typeof G.scope === "number" ? primaryName(G.scope)[0] : G.scope);
+      head = `Archaeplastida practice${G.scope != null ? ` (${scopeLabel()})` : ""}`;
+      link += "?" + prm.toString();
+    }
+    const txt = `${head}: ${G.won ? G.guesses.length + " guess" + (G.guesses.length === 1 ? "" : "es") : "gave up"}` +
+      `${G.hints ? `, ${G.hints} hint${G.hints > 1 ? "s" : ""}` : ""}, play quality ${pct(Q.overall)}\n${rows}\n${link}`;
     navigator.clipboard.writeText(txt).then(() => { $("btn-share").textContent = "Copied!"; setTimeout(() => ($("btn-share").textContent = "Copy result"), 1500); });
   };
 }
 
+// a shared practice link: ?seed=…&pool=…&spread=…&clade=…
+function gameFromURL() {
+  const prm = new URLSearchParams(location.search);
+  if (!prm.has("seed")) return false;
+  const seed = parseInt(prm.get("seed"), 36);
+  if (!Number.isFinite(seed)) return false;
+  if ([...$("pool").options].some(o => o.value === prm.get("pool"))) $("pool").value = prm.get("pool");
+  if ([...$("spread").options].some(o => o.value === prm.get("spread"))) $("spread").value = prm.get("spread");
+  const c = prm.get("clade");
+  scope = null;
+  if (c && PRESETS[c]) scope = c;
+  else if (c) { const e = cladeIndex.find(x => x.name === c); if (e) scope = e.node; }
+  $("scope").value = scopeLabel(); $("scope-clear").hidden = scope === null;
+  history.replaceState(null, "", location.pathname);  // a reload starts a fresh game
+  newGame("practice", seed);
+  return true;
+}
+
 load().then(() => {
   wire();
-  newGame("daily");
+  if (!gameFromURL()) newGame("daily");
   if (!localStorage.getItem("arch-seen-help")) { localStorage.setItem("arch-seen-help", "1"); $("help").showModal(); }
 });
