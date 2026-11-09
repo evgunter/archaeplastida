@@ -1,6 +1,6 @@
 "use strict";
 // Must match the ?v= on app.js in index.html; bump both on every change.
-const ASSET_VERSION = 15;
+const ASSET_VERSION = 16;
 // ---------------------------------------------------------------- data
 let N, parent, depth, end, isTip, tips, size, tipByName = new Map();
 const PHOTO = { o: "https://inaturalist-open-data.s3.amazonaws.com/photos/", s: "https://static.inaturalist.org/photos/" };
@@ -42,10 +42,15 @@ async function load() {
   for (let i = n - 1; i > 0; i--) end[parent[i]] = Math.max(end[parent[i]], end[i]);
   tips.forEach(t => (t.tipNode = t.node));
   tipOfNode = new Map(tips.map(t => [t.node, t]));
+  // iNat rarely lists a California status for algae and bryophytes; treat
+  // unlisted non-vascular species as "probably native" so they can be secrets
+  TRACH = N.findIndex(x => Array.isArray(x[1]) && x[1].some(n => n[0] === "Tracheophyta"));
+  for (const t of tips) if (!t.means && !isVascular(t)) t.means = "p";
   document.getElementById("data-built").textContent =
     `${tips.length.toLocaleString()} species · data built ${d.built}`;
 }
-let tipOfNode, DATA_BUILT;
+let tipOfNode, DATA_BUILT, TRACH = -1;
+const isVascular = t => TRACH >= 0 && isAnc(TRACH, t.node);
 
 function mrca(a, b) {
   while (a !== b) {
@@ -90,7 +95,7 @@ function cladeTitle(i) {
   return t + (t ? "\n" : "") + `${size[i]} CA species`;
 }
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-const badge = m => m ? `<span class="badge ${m}">${{ e: "endemic", n: "native", i: "introduced" }[m]}</span>` : "";
+const badge = m => m ? `<span class="badge ${m}"${m === "p" ? ` title="iNaturalist lists no California status for this species; most unlisted algae and bryophytes are native"` : ""}>${{ e: "endemic", n: "native", i: "introduced", p: "probably native" }[m]}</span>` : "";
 // ---------------------------------------------------------------- monophyly of genera & families
 // Is a genus's (or family's) set of California species a clade in this tree?
 // It's flagged when the smallest clade containing all of them also contains
@@ -160,11 +165,13 @@ function inGroup(t, names) {
   for (let x = t.node; x >= 0; x = parent[x]) if (namesOf(x).some(n => names.includes(n[0]))) return true;
   return false;
 }
+// native, endemic, or "probably native" (see load()) species can be secrets
+const isNativeish = t => t.means === "n" || t.means === "e" || t.means === "p";
 function pool(kind, scope = null) {
   let all = tips;
   if (typeof scope === "number") all = tips.filter(t => isAnc(scope, t.node));
   else if (scope && PRESETS[scope]) all = tips.filter(PRESETS[scope].test);
-  const natives = all.filter(t => t.means === "n" || t.means === "e").sort((a, b) => b.count - a.count || (a.sci < b.sci ? -1 : 1));
+  const natives = all.filter(t => isNativeish(t)).sort((a, b) => b.count - a.count || (a.sci < b.sci ? -1 : 1));
   if (!natives.length || kind === "all") return all.slice();
   const global = !scope;
   switch (kind) {
@@ -178,11 +185,30 @@ function pool(kind, scope = null) {
 // "balanced": family weight = sqrt(#species in pool) (default);
 // "family": every family equally likely.
 const familyOf = t => t.family || t.sci.split(" ")[0];
-function pickSecret(p, spread, rnd) {
+// Family groups of pool p and their weights. With capNV, if non-vascular
+// species (algae, bryophytes) would get more than NV_CAP of the probability,
+// their families' weights are scaled down to exactly NV_CAP, so in ordinary
+// games the secret is vascular at least 90% of the time. Below the cap the
+// weights are untouched.
+const NV_CAP = 0.1;
+function familyWeights(p, spread, capNV) {
   const fams = new Map();
   for (const t of p) { const f = familyOf(t); if (!fams.has(f)) fams.set(f, []); fams.get(f).push(t); }
   const groups = [...fams.values()];
   const w = groups.map(g => spread === "family" ? 1 : spread === "species" ? g.length : Math.sqrt(g.length));
+  if (capNV && spread !== "family") {  // "even across families" stays literally even
+    const nv = groups.map(g => !isVascular(g[0]));
+    let V = 0, NV = 0;
+    groups.forEach((g, i) => { if (nv[i]) NV += w[i]; else V += w[i]; });
+    if (V > 0 && NV / (V + NV) > NV_CAP) {
+      const k = NV_CAP / (1 - NV_CAP) * V / NV;
+      groups.forEach((g, i) => { if (nv[i]) w[i] *= k; });
+    }
+  }
+  return { groups, w };
+}
+function pickSecret(p, spread, rnd, capNV = true) {
+  const { groups, w } = familyWeights(p, spread, capNV);
   let r = rnd() * w.reduce((a, b) => a + b, 0);
   for (let i = 0; i < groups.length; i++) {
     r -= w[i];
@@ -190,13 +216,10 @@ function pickSecret(p, spread, rnd) {
   }
 }
 // the probability pickSecret gives each species in pool p
-function secretDistribution(p, spread) {
-  const fams = new Map();
-  for (const t of p) { const f = familyOf(t); if (!fams.has(f)) fams.set(f, []); fams.get(f).push(t); }
-  const w = g => spread === "family" ? 1 : spread === "species" ? g.length : Math.sqrt(g.length);
-  let W = 0; for (const g of fams.values()) W += w(g);
-  const prob = new Map();
-  for (const g of fams.values()) for (const t of g) prob.set(t, w(g) / W / g.length);
+function secretDistribution(p, spread, capNV = true) {
+  const { groups, w } = familyWeights(p, spread, capNV);
+  const W = w.reduce((a, b) => a + b, 0), prob = new Map();
+  groups.forEach((g, i) => { for (const t of g) prob.set(t, w[i] / W / g.length); });
   return prob;
 }
 function seededRandom(seed) {  // mulberry32
@@ -225,7 +248,7 @@ function newGame(mode, seed = null) {
     const resume = saved && saved.date === date;
     // a game already started today keeps its plant even if the data was updated since
     if (resume && saved.secret && tipByName.get(saved.secret)) secret = tipByName.get(saved.secret);
-    G = { mode, date, secret, guesses: [], hints: 0, over: false, won: false, secretPool: dailyPool(), spread: "balanced" };
+    G = { mode, date, secret, guesses: [], hints: 0, over: false, won: false, secretPool: dailyPool(), spread: "balanced", capNV: true };
     if (resume) {
       G.guesses = saved.guesses.map(s => tipByName.get(s)).filter(Boolean);
       G.hints = saved.hints; G.over = saved.over; G.won = saved.won;
@@ -236,8 +259,10 @@ function newGame(mode, seed = null) {
     // practice games come from a seed, so a shared link recreates the same game
     if (seed === null) seed = Math.floor(Math.random() * 2 ** 32);
     const p = pool($("pool").value, scope);
-    G = { mode, seed, secret: pickSecret(p, $("spread").value, seededRandom(seed)), guesses: [], hints: 0, over: false, won: false,
-          secretPool: p, spread: $("spread").value,
+    // the non-vascular cap applies to unrestricted games, not to a chosen clade or preset
+    const capNV = scope === null;
+    G = { mode, seed, secret: pickSecret(p, $("spread").value, seededRandom(seed), capNV), guesses: [], hints: 0, over: false, won: false,
+          secretPool: p, spread: $("spread").value, capNV,
           start: typeof scope === "number" ? scope : 0, poolSize: p.length, scope };
   }
   $("btn-daily").classList.toggle("active", mode === "daily");
@@ -421,7 +446,7 @@ function playQuality() {
   if (qualityCache && qualityCache.key === key) return qualityCache.val;
   const guessable = scopeTips(G.mode === "practice" ? G.scope : null);
   const w = new Float64Array(N.length);
-  for (const [t, pr] of secretDistribution(G.secretPool, G.spread)) w[t.node] = pr;
+  for (const [t, pr] of secretDistribution(G.secretPool, G.spread, G.capNV)) w[t.node] = pr;
   if (!w[G.secret.node]) w[G.secret.node] = 1e-9;  // e.g. a resumed daily after a data update
   const P = new Float64Array(N.length + 1);
   const total = () => { let m = 0, n = 0; for (let i = 0; i < N.length; i++) { P[i] = m; m += w[i]; if (w[i] > 0) n++; } P[N.length] = m; return [m, n]; };
@@ -767,7 +792,8 @@ function wire() {
   $("suggestions").addEventListener("mousedown", e => {
     const li = e.target.closest("li"); if (li) { e.preventDefault(); pick(+li.dataset.i); }
   });
-  inp.addEventListener("blur", () => setTimeout(hideSuggestions, 100));
+  // hide on blur, unless focus came back (e.g. typing right after clicking a button)
+  inp.addEventListener("blur", () => setTimeout(() => { if (document.activeElement !== inp) hideSuggestions(); }, 100));
   $("btn-daily").onclick = () => newGame("daily");
   $("btn-practice").onclick = () => newGame("practice");
   $("btn-new").onclick = () => newGame("practice");
@@ -793,7 +819,11 @@ function wire() {
   };
   $("btn-share").onclick = () => {
     const Q = playQuality();
-    const rows = G.guesses.map((g, i) => g === G.secret ? plantEmoji(g) : qualityEmoji(Q.per[i].quality)).join("") + (G.won ? "" : "🏳️");
+    // 🔍 narrower-clade hint, 📋 genera hint, placed where they were taken
+    const HINT = { c: "🔍", g: "📋" };
+    const hintsAt = i => (G.hintLog || []).filter(h => (h.at ?? G.guesses.length) === i).map(h => HINT[h.t] || "").join("");
+    const rows = G.guesses.map((g, i) => hintsAt(i) + (g === G.secret ? plantEmoji(g) : qualityEmoji(Q.per[i].quality))).join("") +
+      hintsAt(G.guesses.length) + (G.won ? "" : "🏳️");
     let head, link = location.origin + location.pathname;
     if (G.mode === "daily") head = `Archaeplastida ${G.date}`;
     else {
