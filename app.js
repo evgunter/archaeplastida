@@ -1,6 +1,6 @@
 "use strict";
 // Must match the ?v= on app.js in index.html; bump both on every change.
-const ASSET_VERSION = 12;
+const ASSET_VERSION = 13;
 // ---------------------------------------------------------------- data
 let N, parent, depth, end, isTip, tips, size, tipByName = new Map();
 const PHOTO = { o: "https://inaturalist-open-data.s3.amazonaws.com/photos/", s: "https://static.inaturalist.org/photos/" };
@@ -435,14 +435,13 @@ function playQuality() {
   return val;
 }
 const pct = x => `${Math.round(100 * x)}%`;
-const qualityEmoji = q => q >= 0.9 ? "🟩" : q >= 0.7 ? "🟨" : q > 0 ? "🟧" : "🟥";  // red: rules nothing out
+const qualityEmoji = q => q >= 0.97 ? "🟩" : q >= 0.8 ? "🟨" : q > 0 ? "🟧" : "🟥";  // red: rules nothing out
 
 function renderList(best) {
   const sec = $("list-section"), ol = $("guess-list");
   sec.hidden = !G.guesses.length;
   const Q = playQuality();
-  const rows = G.guesses.map((g, i) => ({ g, i, m: mrca(g.node, G.secret.node), q: Q.per[i] }))
-    .sort((a, b) => depth[b.m] - depth[a.m] || size[a.m] - size[b.m]);
+  const rows = G.guesses.map((g, i) => ({ g, i, m: mrca(g.node, G.secret.node), q: Q.per[i] }));  // guess order
   ol.innerHTML = rows.map(({ g, i, m, q }) => {
     const win = g === G.secret;
     const qTitle = `Guess ${i + 1}: ruled out ${pct(q.ruledOut)} of the ${q.before.toLocaleString()} candidates left. ` +
