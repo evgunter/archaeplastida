@@ -1,6 +1,6 @@
 "use strict";
 // Must match the ?v= on app.js in index.html; bump both on every change.
-const ASSET_VERSION = 14;
+const ASSET_VERSION = 15;
 // ---------------------------------------------------------------- data
 let N, parent, depth, end, isTip, tips, size, tipByName = new Map();
 const PHOTO = { o: "https://inaturalist-open-data.s3.amazonaws.com/photos/", s: "https://static.inaturalist.org/photos/" };
@@ -691,13 +691,17 @@ function inScope(t) {
   if (sc === null || sc === undefined) return true;
   return typeof sc === "number" ? isAnc(sc, t.node) : PRESETS[sc].test(t);
 }
-function search(q, scoped = true) {
+// "include non-native" toggle: off hides species iNat lists as introduced
+// (species with no listed status, like most algae, stay visible)
+let includeIntroduced = true;
+function search(q, scoped = true, filtered = true) {
   q = q.trim().toLowerCase();
   if (q.length < 2) return [];
   const words = q.split(/\s+/);
   const out = [];
   for (const t of tips) {
     if (scoped && !inScope(t)) continue;
+    if (filtered && !includeIntroduced && t.means === "i") continue;
     if (!words.every(w => t.key.includes(w))) continue;
     let score = 0;
     const cm = t.common.toLowerCase(), sc = t.sci.toLowerCase();
@@ -707,7 +711,9 @@ function search(q, scoped = true) {
     score += Math.log10(t.count + 1) * 3;
     out.push([score, t]);
   }
-  out.sort((a, b) => b[0] - a[0]);
+  // already-guessed species go below the rest
+  const used = t => G && G.guesses.includes(t) ? 1 : 0;
+  out.sort((a, b) => used(a[1]) - used(b[1]) || b[0] - a[0]);
   return out.slice(0, 12).map(x => x[1]);
 }
 function showSuggestions() {
@@ -718,8 +724,10 @@ function showSuggestions() {
     if (q.length >= 3) {
       const ql = q.toLowerCase();
       const hit = NOT_PLANTS.find(([keys]) => keys.some(k => ql.includes(k) || (ql.length >= 4 && k.includes(ql))));
-      const outside = !hit && search(q, false)[0];
+      const introduced = !hit && !includeIntroduced && search(q, true, false)[0];
+      const outside = !hit && !introduced && search(q, false)[0];
       ul.innerHTML = `<li class="none">${hit ? hit[1]
+        : introduced ? `Only introduced species match (e.g. ${introduced.common ? esc(introduced.common) + ", " : ""}<i>${esc(introduced.sci)}</i>). Turn on “include non-native” to see them.`
         : outside ? `No match in ${esc(scopeLabel())}. (${outside.common ? esc(outside.common) + ", " : ""}<i>${esc(outside.sci)}</i>, is outside it.)`
         : `No California plant matches “${esc(q)}”. (Kelps and other brown algae, fungi and lichens aren't in Archaeplastida.)`}</li>`;
       ul.hidden = false;
@@ -739,6 +747,13 @@ function pick(i) {
 function wire() {
   const inp = $("guess");
   inp.addEventListener("input", showSuggestions);
+  try { includeIntroduced = localStorage.getItem("arch-include-introduced") !== "0"; } catch (e) {}
+  $("include-introduced").checked = includeIntroduced;
+  $("include-introduced").onchange = () => {
+    includeIntroduced = $("include-introduced").checked;
+    try { localStorage.setItem("arch-include-introduced", includeIntroduced ? "1" : "0"); } catch (e) {}
+    if ($("guess").value.trim()) showSuggestions();
+  };
   inp.addEventListener("keydown", e => {
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       if (!sugg.length) return;

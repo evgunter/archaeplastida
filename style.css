@@ -123,3 +123,4 @@ ul.sugg li.none { color: var(--muted); cursor: default; }
 #info .thumbs img:hover { opacity: 1; }
 #info .thumbs img.on { opacity: 1; outline-color: var(--accent); }
 .clade .qual { color: var(--muted); font-size: .78rem; cursor: help; }
+.toggle { display: inline-flex; gap: 6px; align-items: center; margin-top: 6px; font-size: .88rem; color: var(--muted); cursor: pointer; }

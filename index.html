@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Archaeplastida: guess the California plant</title>
-<link rel="stylesheet" href="style.css?v=14">
+<link rel="stylesheet" href="style.css?v=15">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌿</text></svg>">
 </head>
 <body>
@@ -45,6 +45,7 @@
            placeholder="Type a plant (common or scientific name)…">
     <ul id="suggestions" hidden></ul>
   </div>
+  <label class="toggle"><input type="checkbox" id="include-introduced" checked> include non-native species in suggestions</label>
   <div id="actions">
     <button id="btn-hint" title="Reveal a narrower named clade containing the secret">Hint: narrower clade</button>
     <button id="btn-genera" title="List every genus in the clade you've narrowed it to">Hint: list genera</button>
@@ -98,6 +99,6 @@
 
 <footer>Photos © their iNaturalist observers (licenses shown on hover). <a href="https://github.com/evgunter/archaeplastida">Source &amp; methods</a></footer>
 <!-- bump ?v= on every change to app.js / style.css / data so browsers fetch the new files -->
-<script src="app.js?v=14"></script>
+<script src="app.js?v=15"></script>
 </body>
 </html>
