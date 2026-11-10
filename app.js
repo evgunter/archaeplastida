@@ -1,6 +1,6 @@
 "use strict";
 // Must match the ?v= on app.js in index.html; bump both on every change.
-const ASSET_VERSION = 16;
+const ASSET_VERSION = 17;
 // ---------------------------------------------------------------- data
 let N, parent, depth, end, isTip, tips, size, tipByName = new Map();
 const PHOTO = { o: "https://inaturalist-open-data.s3.amazonaws.com/photos/", s: "https://static.inaturalist.org/photos/" };
@@ -248,7 +248,8 @@ function newGame(mode, seed = null) {
     const resume = saved && saved.date === date;
     // a game already started today keeps its plant even if the data was updated since
     if (resume && saved.secret && tipByName.get(saved.secret)) secret = tipByName.get(saved.secret);
-    G = { mode, date, secret, guesses: [], hints: 0, over: false, won: false, secretPool: dailyPool(), spread: "balanced", capNV: true };
+    const dp = dailyPool();
+    G = { mode, date, secret, guesses: [], hints: 0, over: false, won: false, secretPool: dp, poolSize: dp.length, spread: "balanced", capNV: true };
     if (resume) {
       G.guesses = saved.guesses.map(s => tipByName.get(s)).filter(Boolean);
       G.hints = saved.hints; G.over = saved.over; G.won = saved.won;
@@ -267,7 +268,8 @@ function newGame(mode, seed = null) {
   }
   $("btn-daily").classList.toggle("active", mode === "daily");
   $("btn-practice").classList.toggle("active", mode === "practice");
-  $("pool").disabled = $("spread").disabled = mode === "daily";
+  // practice-only settings are hidden in daily mode
+  $("pool").hidden = $("spread").hidden = mode === "daily";
   $("scope-box").hidden = mode === "daily";
   $("guess").value = ""; hideSuggestions();
   $("guess").placeholder = G.scope != null ? `Type a plant in ${scopeLabel()}…` : "Type a plant (common or scientific name)…";
