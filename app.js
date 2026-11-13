@@ -1,6 +1,6 @@
 "use strict";
 // Must match the ?v= on app.js in index.html; bump both on every change.
-const ASSET_VERSION = 20;
+const ASSET_VERSION = 21;
 // ---------------------------------------------------------------- data
 let N, parent, depth, end, isTip, tips, size, tipByName = new Map();
 const PHOTO = { o: "https://inaturalist-open-data.s3.amazonaws.com/photos/", s: "https://static.inaturalist.org/photos/" };
@@ -454,9 +454,10 @@ function expectedRuledOut(g, P, M) {
 // Species a player can't rule out from what's visible: right status (native,
 // endemic or probably native; anything in "Everything" mode) and inside the
 // clade limit. Modes that draw from the N most-observed natives have a cutoff
-// players can't see exactly, so each eligible species is weighted by how
-// plausibly it clears it: c² / (c² + cutoff²) for c California observations
-// (½ at the cutoff, ~⅘ at twice it, ~⅕ at half of it).
+// players can't see exactly. Species at or above it count fully (knowing a
+// plant is in the pool is no worse a guess); below it the weight falls off as
+// 2c² / (c² + cutoff²) for c California observations: 1 at the cutoff,
+// ~0.4 at half of it, ~0.12 at a quarter.
 function eligibleFor(kind, sc, p) {
   const all = scopeTips(sc), inPool = new Set(p);
   return kind === "all" ? all : all.filter(t => isNativeish(t) || inPool.has(t));
@@ -465,7 +466,7 @@ const poolCutoff = (kind, p) => ["easy", "medium"].includes(kind) && p.length ? 
 function qualityPrior() {
   const elig = G.eligible || G.secretPool, cut = G.cutoff, w = new Float64Array(N.length);
   for (const [t, pr] of secretDistribution(elig, G.spread, G.capNV))
-    w[t.node] = pr * (cut ? t.count * t.count / (t.count * t.count + cut * cut) : 1);
+    w[t.node] = pr * (cut && t.count < cut ? 2 * t.count * t.count / (t.count * t.count + cut * cut) : 1);
   return w;
 }
 let qualityCache = null;
