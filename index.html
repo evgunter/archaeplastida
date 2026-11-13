@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Archaeplastida: guess the California plant</title>
-<link rel="stylesheet" href="style.css?v=18">
+<link rel="stylesheet" href="style.css?v=20">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌿</text></svg>">
 </head>
 <body>
@@ -82,7 +82,7 @@
   <p>A <span class="approx">≈</span> before a name means the group isn't exactly a clade in this tree. Hover over it to see how many of its species fall inside.</p>
   <p>The secret isn't chosen evenly among species, which would make more than one in five secrets a sunflower or pea relative. By default a family is picked first (bigger families somewhat more likely, weighted by the square root of their size), then a species within it. Practice mode lets you change this.</p>
   <p>In practice mode you can <strong>limit the secret to any named clade</strong>, such as ferns, Asteraceae, oaks, or land plants, or to algae or non-vascular plants. The game then starts with that clade already known. The difficulty setting is scaled to the clade: "easy" means its most-observed natives.</p>
-  <p><strong>Play quality</strong> scores each guess by how much it would narrow things down on average, before you know the answer, compared with the best possible guess at that point. The remaining possibilities are weighted the way the game actually picks secrets: only species in the pool, with families balanced as described above. A score of 100% means no guess could have been more informative. The final score is the average over your guesses. Hover over a guess's score for details. In the copied result, 🟩 means at least 97%, 🟨 at least 80%, 🟧 anything that rules out at least one species, and 🟥 a guess that can't rule anything out. 🔍 and 📋 mark where you took a "narrower clade" or "list genera" hint.</p>
+  <p><strong>Play quality</strong> scores each guess by how much it would narrow things down on average, before you know the answer, compared with the best possible guess at that point. The remaining possibilities are weighted the way the game picks secrets, with families balanced as described above. Daily, easy and medium games draw from the most-observed natives, and you can't see exactly where that cutoff falls. So each native counts by how plausibly it clears it: half weight right at the cutoff, more for commoner species, and little for rarely observed ones. A score of 100% means no guess could have been more informative. The final score is the average over your guesses. Hover over a guess's score for details. In the copied result, 🟩 means at least 97%, 🟨 at least 80%, 🟧 anything that rules out at least one species, and 🟥 a guess that can't rule anything out. 🔍 and 📋 mark where you took a "narrower clade" or "list genera" hint.</p>
   <p>iNaturalist lists no California status for most algae, mosses and liverworts. These are marked <span class="badge p">probably native</span> and can be secrets. Unless you limit practice to a clade or choose "even across families", the secret is a vascular plant at least 90% of the time.</p>
   <p>Practice results come with a link that lets someone else play the same game.</p>
   <p>The <strong>daily</strong> plant is the same for everyone and changes at midnight California time.</p>
@@ -100,6 +100,6 @@
 
 <footer>Photos © their iNaturalist observers (licenses shown on hover). <a href="https://github.com/evgunter/archaeplastida">Source &amp; methods</a></footer>
 <!-- bump ?v= on every change to app.js / style.css / data so browsers fetch the new files -->
-<script src="app.js?v=18"></script>
+<script src="app.js?v=20"></script>
 </body>
 </html>

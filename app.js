@@ -1,6 +1,6 @@
 "use strict";
 // Must match the ?v= on app.js in index.html; bump both on every change.
-const ASSET_VERSION = 18;
+const ASSET_VERSION = 20;
 // ---------------------------------------------------------------- data
 let N, parent, depth, end, isTip, tips, size, tipByName = new Map();
 const PHOTO = { o: "https://inaturalist-open-data.s3.amazonaws.com/photos/", s: "https://static.inaturalist.org/photos/" };
@@ -249,7 +249,8 @@ function newGame(mode, seed = null) {
     // a game already started today keeps its plant even if the data was updated since
     if (resume && saved.secret && tipByName.get(saved.secret)) secret = tipByName.get(saved.secret);
     const dp = dailyPool();
-    G = { mode, date, secret, guesses: [], hints: 0, over: false, won: false, secretPool: dp, poolSize: dp.length, spread: "balanced", capNV: true };
+    G = { mode, date, secret, guesses: [], hints: 0, over: false, won: false, secretPool: dp, poolSize: dp.length, spread: "balanced", capNV: true,
+          eligible: eligibleFor("medium", null, dp), cutoff: poolCutoff("medium", dp) };
     if (resume) {
       G.guesses = saved.guesses.map(s => tipByName.get(s)).filter(Boolean);
       G.hints = saved.hints; G.over = saved.over; G.won = saved.won;
@@ -263,7 +264,7 @@ function newGame(mode, seed = null) {
     // the non-vascular cap applies to unrestricted games, not to a chosen clade or preset
     const capNV = scope === null;
     G = { mode, seed, secret: pickSecret(p, $("spread").value, seededRandom(seed), capNV), guesses: [], hints: 0, over: false, won: false,
-          secretPool: p, spread: $("spread").value, capNV,
+          secretPool: p, spread: $("spread").value, capNV, eligible: eligibleFor($("pool").value, scope, p), cutoff: poolCutoff($("pool").value, p),
           start: typeof scope === "number" ? scope : 0, poolSize: p.length, scope };
   }
   $("btn-daily").classList.toggle("active", mode === "daily");
@@ -450,13 +451,29 @@ function expectedRuledOut(g, P, M) {
   for (let v = parent[g]; v >= 0; prev = v, v = parent[v]) { const c = mass(v) - mass(prev); sumSq += c * c; }
   return 1 - sumSq / (M * M);
 }
+// Species a player can't rule out from what's visible: right status (native,
+// endemic or probably native; anything in "Everything" mode) and inside the
+// clade limit. Modes that draw from the N most-observed natives have a cutoff
+// players can't see exactly, so each eligible species is weighted by how
+// plausibly it clears it: c² / (c² + cutoff²) for c California observations
+// (½ at the cutoff, ~⅘ at twice it, ~⅕ at half of it).
+function eligibleFor(kind, sc, p) {
+  const all = scopeTips(sc), inPool = new Set(p);
+  return kind === "all" ? all : all.filter(t => isNativeish(t) || inPool.has(t));
+}
+const poolCutoff = (kind, p) => ["easy", "medium"].includes(kind) && p.length ? Math.min(...p.map(t => t.count)) : null;
+function qualityPrior() {
+  const elig = G.eligible || G.secretPool, cut = G.cutoff, w = new Float64Array(N.length);
+  for (const [t, pr] of secretDistribution(elig, G.spread, G.capNV))
+    w[t.node] = pr * (cut ? t.count * t.count / (t.count * t.count + cut * cut) : 1);
+  return w;
+}
 let qualityCache = null;
 function playQuality() {
   const key = G.secret.node + "|" + G.guesses.map(g => g.node).join(",") + "|" + (G.hintLog || []).map(h => h.n + "@" + h.at).join(",");
   if (qualityCache && qualityCache.key === key) return qualityCache.val;
   const guessable = scopeTips(G.mode === "practice" ? G.scope : null);
-  const w = new Float64Array(N.length);
-  for (const [t, pr] of secretDistribution(G.secretPool, G.spread, G.capNV)) w[t.node] = pr;
+  const w = qualityPrior();
   if (!w[G.secret.node]) w[G.secret.node] = 1e-9;  // e.g. a resumed daily after a data update
   const P = new Float64Array(N.length + 1);
   const total = () => { let m = 0, n = 0; for (let i = 0; i < N.length; i++) { P[i] = m; m += w[i]; if (w[i] > 0) n++; } P[N.length] = m; return [m, n]; };
