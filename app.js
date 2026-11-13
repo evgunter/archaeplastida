@@ -1,6 +1,6 @@
 "use strict";
 // Must match the ?v= on app.js in index.html; bump both on every change.
-const ASSET_VERSION = 17;
+const ASSET_VERSION = 18;
 // ---------------------------------------------------------------- data
 let N, parent, depth, end, isTip, tips, size, tipByName = new Map();
 const PHOTO = { o: "https://inaturalist-open-data.s3.amazonaws.com/photos/", s: "https://static.inaturalist.org/photos/" };
@@ -415,6 +415,14 @@ const EMOJI = {
   Rhodophyta: "🌊", Ulvophyceae: "🌊", Chlorophyta: "💧", Charophyceae: "💧", Zygnematophyceae: "💧",
   Acrogymnospermae: "🌲", Angiospermae: "🌸",
 };
+// emoji for the clade/preset a practice game was limited to (already known to everyone)
+function shareEmoji() {
+  const sc = G.mode === "practice" ? G.scope : null;
+  if (sc === "algae") return "🌊";
+  if (sc === "nonvascular") return "🌱";
+  if (typeof sc === "number") for (let x = sc; x >= 0; x = parent[x]) for (const n of namesOf(x)) if (EMOJI[n[0]]) return EMOJI[n[0]];
+  return "🌸";
+}
 function plantEmoji(t) {
   for (const k of [t.sci, genusOf(t), t.family]) if (k && EMOJI[k]) return EMOJI[k];
   for (let x = parent[t.node]; x >= 0; x = parent[x]) for (const n of namesOf(x)) if (EMOJI[n[0]]) return EMOJI[n[0]];
@@ -824,7 +832,8 @@ function wire() {
     // 🔍 narrower-clade hint, 📋 genera hint, placed where they were taken
     const HINT = { c: "🔍", g: "📋" };
     const hintsAt = i => (G.hintLog || []).filter(h => (h.at ?? G.guesses.length) === i).map(h => HINT[h.t] || "").join("");
-    const rows = G.guesses.map((g, i) => hintsAt(i) + (g === G.secret ? plantEmoji(g) : qualityEmoji(Q.per[i].quality))).join("") +
+    // the final symbol mustn't give the answer away: 🌸, or the practice clade's emoji
+    const rows = G.guesses.map((g, i) => hintsAt(i) + (g === G.secret ? shareEmoji() : qualityEmoji(Q.per[i].quality))).join("") +
       hintsAt(G.guesses.length) + (G.won ? "" : "🏳️");
     let head, link = location.origin + location.pathname;
     if (G.mode === "daily") head = `Archaeplastida ${G.date}`;
