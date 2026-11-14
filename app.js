@@ -1,6 +1,6 @@
 "use strict";
 // Must match the ?v= on app.js in index.html; bump both on every change.
-const ASSET_VERSION = 21;
+const ASSET_VERSION = 22;
 // ---------------------------------------------------------------- data
 let N, parent, depth, end, isTip, tips, size, tipByName = new Map();
 const PHOTO = { o: "https://inaturalist-open-data.s3.amazonaws.com/photos/", s: "https://static.inaturalist.org/photos/" };
@@ -241,6 +241,8 @@ let G; // {mode, secret, guesses:[tip], hints:int, over:bool, won:bool, date}
 const $ = id => document.getElementById(id);
 
 function newGame(mode, seed = null) {
+  exploring = false;
+  $("game").hidden = false; $("explore").hidden = true; $("btn-explore").classList.remove("active"); $("spread").hidden = false;
   if (mode === "daily") {
     const date = today();
     const saved = JSON.parse(localStorage.getItem("arch-daily-v2") || "null");
@@ -614,7 +616,8 @@ function setScope(v) {
   $("scope").value = scopeLabel();
   $("scope-clear").hidden = scope === null;
   $("scope-sugg").hidden = true;
-  if (G && G.mode === "practice") newGame("practice");
+  if (exploring) renderExplore();
+  else if (G && G.mode === "practice") newGame("practice");
 }
 function wireScope() {
   buildCladeIndex();
@@ -736,6 +739,64 @@ function openInfo(t) {
     .catch(() => { if (body.dataset.showing === String(t.node)) body.querySelector(".summary").innerHTML = `<span class="cnt">Couldn't load more from iNaturalist.</span>`; });
 }
 
+// ---------------------------------------------------------------- explore mode
+// A browsable tree of the species in the chosen difficulty pool and clade.
+// Branch points with a single branch inside the selection are skipped, their
+// names shown as a chain on the next row. Children are built on first expand.
+let exploring = false, xCount = null;
+function enterExplore() {
+  exploring = true;
+  for (const m of ["daily", "practice", "explore"]) $("btn-" + m).classList.toggle("active", m === "explore");
+  $("game").hidden = true; $("explore").hidden = false;
+  $("pool").hidden = false; $("spread").hidden = true; $("scope-box").hidden = false;
+  hideSuggestions();
+  renderExplore();
+}
+function renderExplore() {
+  const sel = pool($("pool").value, scope);
+  const inSel = new Uint8Array(N.length);
+  for (const t of sel) inSel[t.node] = 1;
+  xCount = new Int32Array(N.length);  // selected species below each node
+  for (let i = N.length - 1; i >= 0; i--) { xCount[i] += inSel[i]; if (parent[i] >= 0) xCount[parent[i]] += xCount[i]; }
+  const root = typeof scope === "number" ? scope : 0;
+  const box = $("explore-tree");
+  if (!xCount[root]) { box.innerHTML = `<p class="cnt">No species to show.</p>`; return; }
+  box.innerHTML = `<ul>${xItem(...xDescend(root))}</ul>`;
+}
+// follow single-branch chains down from v; returns [node, named nodes passed]
+function xDescend(v) {
+  const chain = [];
+  for (;;) {
+    if (isTip[v]) return [v, chain];
+    let only = -1, n = 0;
+    for (let c = v + 1; c < end[v]; c = end[c]) if (xCount[c]) { only = c; n++; }
+    if (n !== 1) return [v, chain];
+    if (namesOf(v).length) chain.push(v);
+    v = only;
+  }
+}
+function xItem(v, chain) {
+  const pre = chain.length ? `<span class="xchain">${chain.map(x => `<span title="${esc(cladeTitle(x))}">${cladeLabelHTML(x, { short: true })}</span>`).join(" › ")} › </span>` : "";
+  if (isTip[v]) return `<li class="xleaf"><div class="xrow">${pre}<span class="tnode" data-tip="${v}">${tipHTML(tipOfNode.get(v))}</span></div></li>`;
+  return `<li class="xnode" data-node="${v}"><div class="xrow"><span class="xtoggle">▸</span> ${pre}` +
+    `<span class="tnode internal" title="${esc(cladeTitle(v))}">${cladeLabelHTML(v)} <span class="cnt">${xCount[v].toLocaleString()} spp.</span></span></div></li>`;
+}
+function toggleExplore(li) {
+  const open = li.classList.toggle("open");
+  li.querySelector(".xtoggle").textContent = open ? "▾" : "▸";
+  let ul = li.querySelector(":scope > ul");
+  if (open && !ul) {
+    const v = +li.dataset.node, kids = [];
+    for (let c = v + 1; c < end[v]; c = end[c]) if (xCount[c]) kids.push(xDescend(c));
+    // clades first (bigger first), then species alphabetically
+    kids.sort((a, b) => isTip[a[0]] - isTip[b[0]] || xCount[b[0]] - xCount[a[0]] ||
+      (isTip[a[0]] ? tipOfNode.get(a[0]).sci.localeCompare(tipOfNode.get(b[0]).sci) : 0));
+    li.insertAdjacentHTML("beforeend", `<ul>${kids.map(k => xItem(...k)).join("")}</ul>`);
+    ul = li.querySelector(":scope > ul");
+  }
+  if (ul) ul.hidden = !open;
+}
+
 // ---------------------------------------------------------------- autocomplete
 let sugg = [], sel = -1;
 // in practice mode with a clade limit, guesses are restricted to that clade
@@ -825,7 +886,14 @@ function wire() {
   $("btn-daily").onclick = () => newGame("daily");
   $("btn-practice").onclick = () => newGame("practice");
   $("btn-new").onclick = () => newGame("practice");
-  $("pool").onchange = $("spread").onchange = () => { if (G.mode === "practice") newGame("practice"); };
+  $("pool").onchange = $("spread").onchange = () => { if (exploring) renderExplore(); else if (G.mode === "practice") newGame("practice"); };
+  $("btn-explore").onclick = enterExplore;
+  $("explore-collapse").onclick = renderExplore;
+  $("explore-tree").addEventListener("click", e => {
+    const row = e.target.closest(".xrow");
+    if (!row || e.target.closest("a, .badge, .approx, [data-tip]")) return;
+    toggleExplore(row.parentElement);
+  });
   wireScope();
   $("btn-help").onclick = () => $("help").showModal();
   document.addEventListener("click", e => {
