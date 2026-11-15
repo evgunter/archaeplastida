@@ -1,6 +1,6 @@
 "use strict";
 // Must match the ?v= on app.js in index.html; bump both on every change.
-const ASSET_VERSION = 22;
+const ASSET_VERSION = 23;
 // ---------------------------------------------------------------- data
 let N, parent, depth, end, isTip, tips, size, tipByName = new Map();
 const PHOTO = { o: "https://inaturalist-open-data.s3.amazonaws.com/photos/", s: "https://static.inaturalist.org/photos/" };
@@ -366,8 +366,7 @@ function render() {
       <div><div style="font-size:1.3rem" data-tip="${s.node}">${tipHTML(s, false)}</div>
       <div>${s.count.toLocaleString()} research-grade observations in California</div>
       <div><a href="https://www.inaturalist.org/taxa/${s.id}" target="_blank" rel="noopener">iNaturalist</a> ·
-           <a href="https://www.calflora.org/app/taxon?crn=&taxon=${encodeURIComponent(s.sci)}" target="_blank" rel="noopener">Calflora</a> ·
-           <a href="https://ucjeps.berkeley.edu/eflora/search_eflora.php?name=${encodeURIComponent(s.sci)}" target="_blank" rel="noopener">Jepson eFlora</a></div>
+           ${floraLinks(s)}</div>
       <div class="lineage">${lineage.reverse().join(" › ")}</div>
       ${s.src === "g" ? `<div class="lineage">Not in the Open Tree synthesis; placed using taxonomy.</div>` : ""}</div>`;
   } else rv.hidden = true;
@@ -680,6 +679,15 @@ const NOT_PLANTS = [
   [["mushroom", "fungus", "fungi"], "Fungi are more closely related to animals than to plants."],
 ];
 
+// Calflora and Jepson eFlora cover vascular plants only. Calflora's name query
+// lands on the taxon page (or a name-status page that maps iNat names to its
+// own); Jepson's search moved to herbariadb.berkeley.edu.
+function floraLinks(t) {
+  if (!isVascular(t)) return "";
+  return ` · <a href="https://www.calflora.org/cgi-bin/species_query.cgi?where-taxon=${encodeURIComponent(t.sci).replace(/%20/g, "+")}" target="_blank" rel="noopener">Calflora</a>` +
+    ` · <a href="https://herbariadb.berkeley.edu/eflora/search_eflora.php?name=${encodeURIComponent(t.sci)}" target="_blank" rel="noopener">Jepson eFlora</a>`;
+}
+
 // ---------------------------------------------------------------- species info popup
 // Opens instantly with what's already loaded; photos and the Wikipedia summary
 // are fetched from iNaturalist only when a plant is clicked (cached after).
@@ -700,7 +708,6 @@ function openInfo(t) {
   for (let x = parent[t.node]; x >= 0; x = parent[x]) if (namesOf(x).length) lineage.push(x);
   const g = groupStatus("genus", genusOf(t)), f = t.family ? groupStatus("family", t.family) : { mono: true };
   const notes = [g.mono ? "" : groupNote("genus", genusOf(t)), f.mono ? "" : groupNote("family", t.family)].filter(Boolean);
-  const q = encodeURIComponent(t.sci);
   body.innerHTML = `
     <div class="info-head">${tipHTML(t, false)}</div>
     <div class="gallery"><div class="main">${t.photo ? `<img src="${photoUrl(t.photo)}" alt=""><div class="attr">${esc(t.attr)}</div>` : ""}</div>
@@ -710,9 +717,7 @@ function openInfo(t) {
     <div class="summary"><span class="cnt">Loading…</span></div>
     <p class="links"><a href="https://www.inaturalist.org/taxa/${t.id}" target="_blank" rel="noopener">iNaturalist</a> ·
       <a href="https://www.inaturalist.org/observations?taxon_id=${t.id}&place_id=14" target="_blank" rel="noopener">California observations</a> ·
-      <a href="https://www.calflora.org/app/taxon?crn=&taxon=${q}" target="_blank" rel="noopener">Calflora</a> ·
-      <a href="https://ucjeps.berkeley.edu/eflora/search_eflora.php?name=${q}" target="_blank" rel="noopener">Jepson eFlora</a>
-      <span class="wiki"></span></p>
+      ${floraLinks(t)}<span class="wiki"></span></p>
     <div class="lineage">${lineage.reverse().map(x => `<span title="${esc(cladeTitle(x))}">${cladeLabelHTML(x, { short: true })}</span>`).join(" › ")}</div>`;
   if (!dlg.open) dlg.showModal();
   const fill = d => {
