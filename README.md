@@ -37,7 +37,9 @@ are its natives' plus research-grade ones identified only to a genus, section, f
 lying entirely inside it. The clade absorbs any answers inside it, as long as at most one of
 them is "strong" (at least 7,000 observations; 14,000 on easy), so two well-observed species
 are never merged. Guessing any species in the secret answer wins. Daily: 798 answers
-(threshold 500 observations) covering 94% of natives.
+(threshold 500 observations) covering 94% of natives. Medium also keeps natives the bar
+leaves out as answers of their own (every native is covered), and draws secrets in proportion
+to observations^0.25 within each family, so very rare plants come up only occasionally.
 
 The secret is picked by choosing a family first, then an answer in it. By default
 families are weighted by the square root of their size, so Asteraceae makes up about 5%

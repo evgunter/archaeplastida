@@ -1,6 +1,6 @@
 "use strict";
 // Must match the ?v= on app.js in index.html; bump both on every change.
-const ASSET_VERSION = 26;
+const ASSET_VERSION = 27;
 // ---------------------------------------------------------------- data
 let N, parent, depth, end, isTip, tips, size, coarse, tipByName = new Map();
 const PHOTO = { o: "https://inaturalist-open-data.s3.amazonaws.com/photos/", s: "https://static.inaturalist.org/photos/" };
@@ -158,9 +158,12 @@ function tipHTML(t, thumb = true) {
 // non-clade presets below. Difficulty is a number of answers: "easy" ~5% of the
 // scope's natives (at least 10; 300 overall), "medium" ~25% (at least 25; 1500
 // overall), daily 800, "hard" one per native. The observation threshold is
-// set to give that many answers (see pool). MERGE_BAR is how well-observed an
+// set to give that many answers (see pool). `bar` is how well-observed an
 // answer can be and still be pooled with a relative (see makeAnswers).
-const MERGE_BAR = { easy: 14000, medium: 7000, daily: 7000 };
+// Medium admits every native: one the bar keeps from pooling stays an answer
+// on its own, and secrets are drawn in proportion to observations^alpha, so
+// rare ones still come up, just rarely.
+const POOL_RULES = { easy: { bar: 14000 }, daily: { bar: 7000 }, medium: { bar: 7000, admitAll: true, alpha: 0.25 } };
 const PRESETS = {
   algae: { label: "algae (red + green; not a clade)",
            test: t => inGroup(t, ["Rhodophyta", "Chlorophyta", "Charophyceae", "Zygnematophyceae"]) },
@@ -195,18 +198,20 @@ function pool(kind, sc = null, target = null) {
     // by binary search over the natives' observation counts
     const Ts = [...new Set(natives.map(t => t.count))].sort((a, b) => b - a);
     let lo = 0, hi = Ts.length - 1;
-    const bar = MERGE_BAR[kind];
+    const { bar, admitAll = false, alpha = 0 } = POOL_RULES[kind];
     while (lo < hi) {
       const mid = (lo + hi + 1) >> 1;
-      if (makeAnswers(Ts[mid], inS, bar, true) <= k) lo = mid; else hi = mid - 1;
+      if (makeAnswers(Ts[mid], inS, bar, true, admitAll) <= k) lo = mid; else hi = mid - 1;
     }
-    res = makeAnswers(Ts[lo], inS, bar);
+    res = makeAnswers(Ts[lo], inS, bar, false, admitAll);
+    if (alpha) for (const a of res) a.w = Math.pow(Math.max(1, a.obs), alpha);
   }
   poolCache.set(key, res);
   return res;
 }
+// w: relative chance of being the secret within its family (see familyWeights)
 function singleAnswer(t) {
-  return { node: t.node, members: [t], rep: t, sci: t.sci, id: t.id, family: t.family, obs: t.count, coarse: 0 };
+  return { node: t.node, members: [t], rep: t, sci: t.sci, id: t.id, family: t.family, obs: t.count, coarse: 0, w: 1 };
 }
 // Pooling, bottom-up so the smallest qualifying clade wins and the result
 // doesn't depend on processing order. A native species with ≥ T observations
@@ -217,8 +222,9 @@ function singleAnswer(t) {
 // relative. A clade's observations are those of its native species plus
 // research-grade observations identified only to a taxon within it (genus,
 // section, …). Only clades lying entirely inside the scope (inS) can be answers.
+// With admitAll, natives left out of every clade answer are answers on their own.
 // With countOnly, returns just the number of answers.
-function makeAnswers(T, inS, B, countOnly = false) {
+function makeAnswers(T, inS, B, countOnly = false, admitAll = false) {
   const n = N.length, obs = new Float64Array(n), strong = new Int32Array(n), unc = new Int32Array(n),
         out = new Int32Array(n), isAns = new Uint8Array(n);
   for (let i = n - 1; i >= 0; i--) {
@@ -239,7 +245,10 @@ function makeAnswers(T, inS, B, countOnly = false) {
   let count = 0;
   const res = [];
   for (let i = 0; i < n; i = isAns[i] ? end[i] : i + 1) {  // outermost answers only
-    if (!isAns[i]) continue;
+    if (!isAns[i]) {
+      if (admitAll && unc[i] && isTip[i]) { count++; if (!countOnly) res.push(singleAnswer(tipOfNode.get(i))); }
+      continue;
+    }
     count++;
     if (countOnly) continue;
     if (isTip[i]) { res.push(singleAnswer(tipOfNode.get(i))); continue; }
@@ -251,7 +260,7 @@ function makeAnswers(T, inS, B, countOnly = false) {
     for (const t of members) if (isNativeish(t)) fams.set(familyOf(t), (fams.get(familyOf(t)) || 0) + 1);
     const family = [...fams.entries()].sort((a, b) => b[1] - a[1])[0][0];
     let c = 0; for (let x = i; x < end[i]; x++) c += coarse[x];
-    res.push({ node: i, members, rep: members[0], sci: members[0].sci, id: members[0].id, family, obs: obs[i], coarse: c, T });
+    res.push({ node: i, members, rep: members[0], sci: members[0].sci, id: members[0].id, family, obs: obs[i], coarse: c, T, w: 1 });
   }
   return countOnly ? count : res;
 }
@@ -267,9 +276,10 @@ function answerLabelHTML(a, { short = false } = {}) {
   return "a clade of " + (g.length <= 3 ? g.slice(0, -1).join(", ") + " and " + g[g.length - 1]
     : `${g.slice(0, 2).join(", ")} and ${g.length - 2} more genera`);
 }
-// Secret selection: pick a family (weighted by spread), then a species in it.
-// "species": every species equally likely (big families dominate);
-// "balanced": family weight = sqrt(#species in pool) (default);
+// Secret selection: pick a family (weighted by spread), then an answer in it,
+// in proportion to the answers' weights w (all 1, except in medium; see POOL_RULES).
+// "species": every answer equally likely, i.e. family weight = total w (big families dominate);
+// "balanced": family weight = sqrt(total w) (default);
 // "family": every family equally likely.
 const familyOf = t => t.family || t.sci.split(" ")[0];
 // Family groups of pool p and their weights. With capNV, if non-vascular
@@ -282,7 +292,8 @@ function familyWeights(p, spread, capNV) {
   const fams = new Map();
   for (const t of p) { const f = familyOf(t); if (!fams.has(f)) fams.set(f, []); fams.get(f).push(t); }
   const groups = [...fams.values()];
-  const w = groups.map(g => spread === "family" ? 1 : spread === "species" ? g.length : Math.sqrt(g.length));
+  const tot = g => g.reduce((s, a) => s + a.w, 0);
+  const w = groups.map(g => spread === "family" ? 1 : spread === "species" ? tot(g) : Math.sqrt(tot(g)));
   if (capNV && spread !== "family") {  // "even across families" stays literally even
     const nv = groups.map(g => !isVascular(g[0]));
     let V = 0, NV = 0;
@@ -299,14 +310,19 @@ function pickSecret(p, spread, rnd, capNV = true) {
   let r = rnd() * w.reduce((a, b) => a + b, 0);
   for (let i = 0; i < groups.length; i++) {
     r -= w[i];
-    if (r < 0 || i === groups.length - 1) return groups[i][Math.floor(rnd() * groups[i].length)];
+    if (r < 0 || i === groups.length - 1) {
+      const g = groups[i];
+      let q = rnd() * g.reduce((s, a) => s + a.w, 0);
+      for (const a of g) { q -= a.w; if (q < 0) return a; }
+      return g[g.length - 1];
+    }
   }
 }
 // the probability pickSecret gives each species in pool p
 function secretDistribution(p, spread, capNV = true) {
   const { groups, w } = familyWeights(p, spread, capNV);
   const W = w.reduce((a, b) => a + b, 0), prob = new Map();
-  groups.forEach((g, i) => { for (const t of g) prob.set(t, w[i] / W / g.length); });
+  groups.forEach((g, i) => { const gw = g.reduce((s, a) => s + a.w, 0); for (const a of g) prob.set(a, w[i] / W * a.w / gw); });
   return prob;
 }
 function seededRandom(seed) {  // mulberry32

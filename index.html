@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Archaeplastida: guess the California plant</title>
-<link rel="stylesheet" href="style.css?v=26">
+<link rel="stylesheet" href="style.css?v=27">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌿</text></svg>">
 </head>
 <body>
@@ -86,7 +86,7 @@
   <h2>How to play</h2>
   <p>A secret plant has been chosen from among the plants observed growing wild in California. That includes flowering plants, conifers, ferns, mosses, liverworts, hornworts, and green and red algae: the whole of <em>Archaeplastida</em> that's found here.</p>
   <p>Guess any species. You'll see the <strong>smallest clade</strong> (branch of the tree of life) containing both your guess and the secret, along with how many California species that clade contains. Narrow down until you guess the exact species.</p>
-  <p>Some answers are <strong>groups</strong> rather than single species. Each difficulty has an observation threshold, set so that it has a fixed number of answers (800 for the daily plant). Natives with at least that many research-grade California observations on iNaturalist are answers on their own. Rarer natives are pooled with their closest relatives into the smallest clade whose observations together reach the threshold, counting research-grade observations identified only to genus or another higher group. If the secret is such a group, guessing any species in it wins. A species with fewer than 7,000 observations (14,000 on easy) can be pooled into a relative's group, but two species above that are never pooled together, so a few rare species still aren't answers.</p>
+  <p>Some answers are <strong>groups</strong> rather than single species. Each difficulty has an observation threshold, set so that it has a fixed number of answers (800 for the daily plant). Natives with at least that many research-grade California observations on iNaturalist are answers on their own. Rarer natives are pooled with their closest relatives into the smallest clade whose observations together reach the threshold, counting research-grade observations identified only to genus or another higher group. If the secret is such a group, guessing any species in it wins. A species with fewer than 7,000 observations (14,000 on easy) can be pooled into a relative's group, but two species above that are never pooled together, so a few rare species still aren't answers. In medium, those species are answers on their own, and the secret is drawn in proportion to (observations)<sup>¼</sup>, so a rarely observed plant can come up, just less often.</p>
   <p>Many clades have no formal name. They show up as <em>unnamed clade</em> along with the nearest named group that contains them. The tree resolves splits wherever published phylogenies support them, not just at named ranks.</p>
   <p>Stuck? <strong>Hint: narrower clade</strong> names a smaller group that contains the secret. <strong>Hint: list genera</strong> lists every genus in the clade you've narrowed it to (once that clade has 50 or fewer genera).</p>
   <p>A <span class="approx">≈</span> before a name means the group isn't exactly a clade in this tree. Hover over it to see how many of its species fall inside.</p>
@@ -111,6 +111,6 @@
 
 <footer>Photos © their iNaturalist observers (licenses shown on hover). <a href="https://github.com/evgunter/archaeplastida">Source &amp; methods</a></footer>
 <!-- bump ?v= on every change to app.js / style.css / data so browsers fetch the new files -->
-<script src="app.js?v=26"></script>
+<script src="app.js?v=27"></script>
 </body>
 </html>
