@@ -1,6 +1,6 @@
 "use strict";
 // Must match the ?v= on app.js in index.html; bump both on every change.
-const ASSET_VERSION = 27;
+const ASSET_VERSION = 28;
 // ---------------------------------------------------------------- data
 let N, parent, depth, end, isTip, tips, size, coarse, tipByName = new Map();
 const PHOTO = { o: "https://inaturalist-open-data.s3.amazonaws.com/photos/", s: "https://static.inaturalist.org/photos/" };
@@ -160,10 +160,16 @@ function tipHTML(t, thumb = true) {
 // overall), daily 800, "hard" one per native. The observation threshold is
 // set to give that many answers (see pool). `bar` is how well-observed an
 // answer can be and still be pooled with a relative (see makeAnswers).
-// Medium admits every native: one the bar keeps from pooling stays an answer
-// on its own, and secrets are drawn in proportion to observations^alpha, so
-// rare ones still come up, just rarely.
-const POOL_RULES = { easy: { bar: 14000 }, daily: { bar: 7000 }, medium: { bar: 7000, admitAll: true, alpha: 0.25 } };
+// A native the bar keeps from pooling can still be an answer on its own if it
+// has at least `admit` observations. In medium every native is admitted and
+// the admitted count toward the target; daily admits those with ≥ 100 on top
+// of its 800. With `alpha`, secrets are drawn in proportion to
+// observations^alpha, so rare ones still come up, just rarely.
+const POOL_RULES = {
+  easy: { bar: 14000 },
+  daily: { bar: 7000, admit: 100, admitBeyondTarget: true, alpha: 0.25 },
+  medium: { bar: 7000, admit: 0, alpha: 0.25 },
+};
 const PRESETS = {
   algae: { label: "algae (red + green; not a clade)",
            test: t => inGroup(t, ["Rhodophyta", "Chlorophyta", "Charophyceae", "Zygnematophyceae"]) },
@@ -198,12 +204,13 @@ function pool(kind, sc = null, target = null) {
     // by binary search over the natives' observation counts
     const Ts = [...new Set(natives.map(t => t.count))].sort((a, b) => b - a);
     let lo = 0, hi = Ts.length - 1;
-    const { bar, admitAll = false, alpha = 0 } = POOL_RULES[kind];
+    const { bar, admit = null, admitBeyondTarget = false, alpha = 0 } = POOL_RULES[kind];
+    const calAdmit = admitBeyondTarget ? null : admit;
     while (lo < hi) {
       const mid = (lo + hi + 1) >> 1;
-      if (makeAnswers(Ts[mid], inS, bar, true, admitAll) <= k) lo = mid; else hi = mid - 1;
+      if (makeAnswers(Ts[mid], inS, bar, true, calAdmit) <= k) lo = mid; else hi = mid - 1;
     }
-    res = makeAnswers(Ts[lo], inS, bar, false, admitAll);
+    res = makeAnswers(Ts[lo], inS, bar, false, admit);
     if (alpha) for (const a of res) a.w = Math.pow(Math.max(1, a.obs), alpha);
   }
   poolCache.set(key, res);
@@ -222,9 +229,10 @@ function singleAnswer(t) {
 // relative. A clade's observations are those of its native species plus
 // research-grade observations identified only to a taxon within it (genus,
 // section, …). Only clades lying entirely inside the scope (inS) can be answers.
-// With admitAll, natives left out of every clade answer are answers on their own.
+// With admit (a number), natives left out of every clade answer that have at
+// least that many observations are answers on their own.
 // With countOnly, returns just the number of answers.
-function makeAnswers(T, inS, B, countOnly = false, admitAll = false) {
+function makeAnswers(T, inS, B, countOnly = false, admit = null) {
   const n = N.length, obs = new Float64Array(n), strong = new Int32Array(n), unc = new Int32Array(n),
         out = new Int32Array(n), isAns = new Uint8Array(n);
   for (let i = n - 1; i >= 0; i--) {
@@ -246,7 +254,7 @@ function makeAnswers(T, inS, B, countOnly = false, admitAll = false) {
   const res = [];
   for (let i = 0; i < n; i = isAns[i] ? end[i] : i + 1) {  // outermost answers only
     if (!isAns[i]) {
-      if (admitAll && unc[i] && isTip[i]) { count++; if (!countOnly) res.push(singleAnswer(tipOfNode.get(i))); }
+      if (admit !== null && unc[i] && isTip[i] && obs[i] >= admit) { count++; if (!countOnly) res.push(singleAnswer(tipOfNode.get(i))); }
       continue;
     }
     count++;
@@ -277,7 +285,8 @@ function answerLabelHTML(a, { short = false } = {}) {
     : `${g.slice(0, 2).join(", ")} and ${g.length - 2} more genera`);
 }
 // Secret selection: pick a family (weighted by spread), then an answer in it,
-// in proportion to the answers' weights w (all 1, except in medium; see POOL_RULES).
+// in proportion to the answers' weights w (1, or obs^alpha; see POOL_RULES).
+// Play quality uses the same distribution (secretDistribution).
 // "species": every answer equally likely, i.e. family weight = total w (big families dominate);
 // "balanced": family weight = sqrt(total w) (default);
 // "family": every family equally likely.
