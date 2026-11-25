@@ -75,10 +75,7 @@ details.more { font-size: .85rem; color: var(--muted); }
 #reveal { margin: 14px 0; padding: 14px; border-radius: 12px; background: var(--accent-soft); border: 1px solid var(--accent); display: flex; gap: 14px; flex-wrap: wrap; }
 #reveal img { width: 220px; max-width: 100%; border-radius: 10px; }
 #reveal .lineage { font-size: .85rem; color: var(--muted); margin-top: 6px; }
-#reveal .group { flex-basis: 100%; }
-#reveal .members { columns: 2 260px; margin: 8px 0 0; padding-left: 1.2em; font-size: .9rem; }
-#reveal .members li { cursor: pointer; break-inside: avoid; }
-#reveal .members li.this { font-weight: 700; }
+#reveal .group { font-size: 1.05rem; margin: 2px 0 6px; }
 footer { margin: 30px auto 20px; color: var(--muted); font-size: .85rem; }
 a { color: var(--accent); }
 dialog { max-width: 620px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); color: var(--fg); }

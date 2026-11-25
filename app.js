@@ -1,6 +1,6 @@
 "use strict";
 // Must match the ?v= on app.js in index.html; bump both on every change.
-const ASSET_VERSION = 24;
+const ASSET_VERSION = 25;
 // ---------------------------------------------------------------- data
 let N, parent, depth, end, isTip, tips, size, coarse, tipByName = new Map();
 const PHOTO = { o: "https://inaturalist-open-data.s3.amazonaws.com/photos/", s: "https://static.inaturalist.org/photos/" };
@@ -155,10 +155,10 @@ function tipHTML(t, thumb = true) {
 
 // ---------------------------------------------------------------- pools & seeding
 // Practice pools. `scope` is null (everything), a clade node, or one of the
-// non-clade presets below. Difficulty is an observation threshold: the count
-// of the Nth most-observed native in the scope. "easy" is the top ~5% of its
-// natives (at least 10; 300 overall), "medium" ~25% (at least 25; 1500 overall),
-// "hard" every native.
+// non-clade presets below. Difficulty is a number of answers: "easy" ~5% of the
+// scope's natives (at least 10; 300 overall), "medium" ~25% (at least 25; 1500
+// overall), daily 600, "hard" one per native. The observation threshold is
+// set to give that many answers (see pool).
 const PRESETS = {
   algae: { label: "algae (red + green; not a clade)",
            test: t => inGroup(t, ["Rhodophyta", "Chlorophyta", "Charophyceae", "Zygnematophyceae"]) },
@@ -177,18 +177,27 @@ const scopeTest = sc => sc === null || sc === undefined ? () => true
 // California observations, or a clade pooling rarer natives until together they
 // reach T; guessing any species in it wins. See makeAnswers.
 const poolCache = new Map();
-function pool(kind, sc = null, rank = null) {
-  const key = kind + "|" + sc + "|" + rank;
+function pool(kind, sc = null, target = null) {
+  const key = kind + "|" + sc + "|" + target;
   if (poolCache.has(key)) return poolCache.get(key);
   const inS = scopeTest(sc), all = tips.filter(inS);
-  const natives = all.filter(isNativeish).sort((a, b) => b.count - a.count);
+  const natives = all.filter(isNativeish);
   let res;
   if (!natives.length || kind === "all") res = all.map(t => singleAnswer(t));
+  else if (kind === "hard") res = makeAnswers(0, inS);
   else {
     const global = sc === null || sc === undefined;
-    const k = rank || { easy: global ? 300 : Math.max(10, Math.round(natives.length * 0.05)),
-                        medium: global ? 1500 : Math.max(25, Math.round(natives.length * 0.25)) }[kind];
-    res = makeAnswers(k ? natives[Math.min(k, natives.length) - 1].count : 0, inS);
+    const k = target || { easy: global ? 300 : Math.max(10, Math.round(natives.length * 0.05)),
+                          medium: global ? 1500 : Math.max(25, Math.round(natives.length * 0.25)) }[kind];
+    // the lowest threshold giving at most k answers (fewer threshold → more answers),
+    // by binary search over the natives' observation counts
+    const Ts = [...new Set(natives.map(t => t.count))].sort((a, b) => b - a);
+    let lo = 0, hi = Ts.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (makeAnswers(Ts[mid], inS, true) <= k) lo = mid; else hi = mid - 1;
+    }
+    res = makeAnswers(Ts[lo], inS);
   }
   poolCache.set(key, res);
   return res;
@@ -199,13 +208,16 @@ function singleAnswer(t) {
 // Pooling, bottom-up so the smallest qualifying clade wins and the result
 // doesn't depend on processing order. A native species with ≥ T observations
 // is an answer. A clade becomes an answer when it holds a native that isn't in
-// any answer yet, its observations reach T, and it holds at most one answer
-// already (which it then absorbs), so no two answers are ever forced to merge.
-// A clade's observations are those of its native species plus observations
-// identified only to a taxon within it (genus, section, …). Only clades lying
-// entirely inside the scope (inS) can be answers.
-function makeAnswers(T, inS) {
-  const n = N.length, obs = new Float64Array(n), nAns = new Int32Array(n), unc = new Int32Array(n),
+// any answer yet, its observations reach T, and it holds at most one "strong"
+// answer (≥ WEAK_MERGE·T observations); it absorbs every answer inside it. So
+// two strong answers are never merged, but weaker ones can be pooled with a
+// relative. A clade's observations are those of its native species plus
+// research-grade observations identified only to a taxon within it (genus,
+// section, …). Only clades lying entirely inside the scope (inS) can be answers.
+// With countOnly, returns just the number of answers.
+const WEAK_MERGE = 1.5;
+function makeAnswers(T, inS, countOnly = false) {
+  const n = N.length, B = WEAK_MERGE * T, obs = new Float64Array(n), strong = new Int32Array(n), unc = new Int32Array(n),
         out = new Int32Array(n), isAns = new Uint8Array(n);
   for (let i = n - 1; i >= 0; i--) {
     if (isTip[i]) {
@@ -213,18 +225,21 @@ function makeAnswers(T, inS) {
       if (!inS(t)) out[i] = 1;
       else if (isNativeish(t)) {
         obs[i] = t.count;
-        if (t.count >= T) { isAns[i] = 1; nAns[i] = 1; } else unc[i] = 1;
+        if (t.count >= T) { isAns[i] = 1; strong[i] = t.count >= B ? 1 : 0; } else unc[i] = 1;
       }
     } else {
       obs[i] += coarse[i];
-      if (unc[i] && !out[i] && obs[i] >= T && nAns[i] <= 1) { isAns[i] = 1; nAns[i] = 1; unc[i] = 0; }
+      if (unc[i] && !out[i] && obs[i] >= T && strong[i] <= 1) { isAns[i] = 1; strong[i] = obs[i] >= B ? 1 : 0; unc[i] = 0; }
     }
     const p = parent[i];
-    if (p >= 0) { obs[p] += obs[i]; nAns[p] += nAns[i]; unc[p] += unc[i]; out[p] += out[i]; }
+    if (p >= 0) { obs[p] += obs[i]; strong[p] += strong[i]; unc[p] += unc[i]; out[p] += out[i]; }
   }
+  let count = 0;
   const res = [];
   for (let i = 0; i < n; i = isAns[i] ? end[i] : i + 1) {  // outermost answers only
     if (!isAns[i]) continue;
+    count++;
+    if (countOnly) continue;
     if (isTip[i]) { res.push(singleAnswer(tipOfNode.get(i))); continue; }
     const members = [];
     for (let x = i; x < end[i]; x++) if (isTip[x]) members.push(tipOfNode.get(x));
@@ -236,19 +251,19 @@ function makeAnswers(T, inS) {
     let c = 0; for (let x = i; x < end[i]; x++) c += coarse[x];
     res.push({ node: i, members, rep: members[0], sci: members[0].sci, id: members[0].id, family, obs: obs[i], coarse: c, T });
   }
-  return res;
+  return countOnly ? count : res;
 }
 const isSingle = a => a.members.length === 1;
 const answerOf = (p, t) => p.find(a => isAnc(a.node, t.node));
-const nativeCount = a => a.members.filter(isNativeish).length;
-// "Lomatium", or for an unnamed clade the genera it spans
+// the clade of a pooled answer: its name, or for an unnamed clade the genera it
+// spans, most species first ("a clade of Streptanthus, Caulanthus and 9 more genera")
 function answerLabelHTML(a, { short = false } = {}) {
   if (isSingle(a)) return `<i>${esc(a.sci)}</i>`;
   if (namesOf(a.node).length) return cladeLabelHTML(a.node, { short });
-  const g = generaIn(a.node).map(x => x[0]);
-  if (g.length === 1) return `<i>${esc(g[0])}</i> <span class="cnt">(${a.members.length} of its species)</span>`;
-  return (g.length <= 3 ? g.map(x => `<i>${esc(x)}</i>`).join(", ")
-    : `${g.slice(0, 2).map(x => `<i>${esc(x)}</i>`).join(", ")} and ${g.length - 2} more genera`) + ` <span class="cnt">(a clade)</span>`;
+  const g = generaIn(a.node).map(x => `<i>${esc(x[0])}</i>`);
+  if (g.length === 1) return `a clade within ${g[0]}`;
+  return "a clade of " + (g.length <= 3 ? g.slice(0, -1).join(", ") + " and " + g[g.length - 1]
+    : `${g.slice(0, 2).join(", ")} and ${g.length - 2} more genera`);
 }
 // Secret selection: pick a family (weighted by spread), then a species in it.
 // "species": every species equally likely (big families dominate);
@@ -301,7 +316,6 @@ function hashStr(s) { let h = 2166136261; for (const c of s) { h ^= c.charCodeAt
 function today() {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Los_Angeles", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
 }
-// threshold: the 600th most-observed native's count
 const dailyPool = () => pool("daily", null, 600).slice().sort((a, b) => a.id - b.id);
 function dailySecret(dateStr) {
   return pickSecret(dailyPool(), "balanced", seededRandom(hashStr("archaeplastida:" + dateStr)));
@@ -431,27 +445,20 @@ function render() {
     ? `💡 The secret is in ${cladeLabelHTML(h.n)} <span class="cnt">(${size[h.n]} species)</span>`
     : `💡 Genera in ${cladeLabelHTML(h.n, { short: true })} <span class="cnt">(${size[h.n]} species)</span>: ${generaHTML(h.n)}`).join("<br>");
 
-  // reveal: the species guessed (or, if revealed, the answer's most-observed species),
-  // and for a pooled answer, every species in it
+  // reveal: the answer's most-observed species, and for a pooled answer, its clade
   const rv = $("reveal");
   if (G.over) {
     rv.hidden = false;
-    const t = G.won ? G.guesses[gcount - 1] : s.rep;
+    const t = s.rep;
     const lineage = [];
     for (let x = parent[t.node]; x >= 0; x = parent[x]) if (namesOf(x).length) lineage.push(namesOf(x)[0][0]);
-    const group = isSingle(s) ? "" : `<div class="group">
-        <div>This answer is a group, ${answerLabelHTML(s)}: guessing any of its ${s.members.length} California species counted.
-          <span class="cnt">${s.rep.count >= s.T
-            ? `<i>${esc(s.rep.sci)}</i> is common enough to be an answer on its own; its relatives here aren't, so they're pooled with it.`
-            : `None of them has enough observations to be an answer on its own, so they're pooled:
-               ${s.obs.toLocaleString()} observations between them${s.coarse ? `, including ${s.coarse.toLocaleString()} identified only to genus or a higher group` : ""}.`}</span></div>
-        <ul class="members">${s.members.map(m => `<li data-tip="${m.node}" class="${m === t ? "this" : ""}">${m.common ? esc(m.common) + " · " : ""}<i>${esc(m.sci)}</i> ${badge(m.means)}</li>`).join("")}</ul></div>`;
     rv.innerHTML = `${t.photo ? `<img src="${photoUrl(t.photo)}" title="${esc(t.attr)}" alt="" data-tip="${t.node}">` : ""}
       <div><div style="font-size:1.3rem" data-tip="${t.node}">${tipHTML(t, false)}</div>
+      ${isSingle(s) ? "" : `<div class="group">plus other members of ${answerLabelHTML(s)}</div>`}
       <div>${t.count.toLocaleString()} research-grade observations in California</div>
       <div><a href="https://www.inaturalist.org/taxa/${t.id}" target="_blank" rel="noopener">iNaturalist</a>${floraLinks(t)}</div>
       <div class="lineage">${lineage.reverse().join(" › ")}</div>
-      ${t.src === "g" ? `<div class="lineage">Not in the Open Tree synthesis; placed using taxonomy.</div>` : ""}</div>${group}`;
+      ${t.src === "g" ? `<div class="lineage">Not in the Open Tree synthesis; placed using taxonomy.</div>` : ""}</div>`;
   } else rv.hidden = true;
 
   renderList(best);

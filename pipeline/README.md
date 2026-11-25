@@ -66,19 +66,19 @@ $W/venv/bin/python pipeline/build_tree.py --inat $W/inat_ca.json \
   --ott $D/ott/ott3.7.3 --tnrs-cache $W/tnrs_cache.json \
   --taxon-common $W/taxon_common.json --out data/game.json
 python3 pipeline/fetch_coarse_obs.py $W/coarse_obs.json
-python3 pipeline/add_coarse_obs.py $W/coarse_obs.json data/game.json
+python3 pipeline/add_coarse_obs.py $W/coarse_obs.json data/game.json --rg
 ```
 
 ## Coarse observations (`add_coarse_obs.py`)
 
 To pool rare species into higher-taxon answers (see the main README), the game needs
 observations identified only above species. `fetch_coarse_obs.py` gets every taxon's
-direct California observation count from iNat's `/observations/taxonomy`, verifiable
-(research grade + needs ID): research-grade alone has only ~22k such observations, against
-~1.85M verifiable. `add_coarse_obs.py` adds each taxon's count to the smallest tree node holding
-all its California species, so it only counts toward clades that contain every species
-it could be. Taxa with no species in the tree are dropped (~8k observations). Pass `--rg` to
-use research grade only.
+direct California observation count from iNat's `/observations/taxonomy`, both research grade
+(~22k observations above species) and verifiable (~1.85M, mostly needs-ID). The game uses
+research grade (`--rg`), since needs-ID identifications are less reliable. `add_coarse_obs.py`
+adds each taxon's count to the smallest tree node holding all its California species, so it
+only counts toward clades that contain every species it could be. Taxa with no species in
+the tree are dropped.
 
 ## Output format (`data/game.json`)
 
