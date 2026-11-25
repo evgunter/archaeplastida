@@ -1,6 +1,6 @@
 "use strict";
 // Must match the ?v= on app.js in index.html; bump both on every change.
-const ASSET_VERSION = 25;
+const ASSET_VERSION = 26;
 // ---------------------------------------------------------------- data
 let N, parent, depth, end, isTip, tips, size, coarse, tipByName = new Map();
 const PHOTO = { o: "https://inaturalist-open-data.s3.amazonaws.com/photos/", s: "https://static.inaturalist.org/photos/" };
@@ -157,8 +157,10 @@ function tipHTML(t, thumb = true) {
 // Practice pools. `scope` is null (everything), a clade node, or one of the
 // non-clade presets below. Difficulty is a number of answers: "easy" ~5% of the
 // scope's natives (at least 10; 300 overall), "medium" ~25% (at least 25; 1500
-// overall), daily 600, "hard" one per native. The observation threshold is
-// set to give that many answers (see pool).
+// overall), daily 800, "hard" one per native. The observation threshold is
+// set to give that many answers (see pool). MERGE_BAR is how well-observed an
+// answer can be and still be pooled with a relative (see makeAnswers).
+const MERGE_BAR = { easy: 14000, medium: 7000, daily: 7000 };
 const PRESETS = {
   algae: { label: "algae (red + green; not a clade)",
            test: t => inGroup(t, ["Rhodophyta", "Chlorophyta", "Charophyceae", "Zygnematophyceae"]) },
@@ -184,7 +186,7 @@ function pool(kind, sc = null, target = null) {
   const natives = all.filter(isNativeish);
   let res;
   if (!natives.length || kind === "all") res = all.map(t => singleAnswer(t));
-  else if (kind === "hard") res = makeAnswers(0, inS);
+  else if (kind === "hard") res = makeAnswers(0, inS, 0);
   else {
     const global = sc === null || sc === undefined;
     const k = target || { easy: global ? 300 : Math.max(10, Math.round(natives.length * 0.05)),
@@ -193,11 +195,12 @@ function pool(kind, sc = null, target = null) {
     // by binary search over the natives' observation counts
     const Ts = [...new Set(natives.map(t => t.count))].sort((a, b) => b - a);
     let lo = 0, hi = Ts.length - 1;
+    const bar = MERGE_BAR[kind];
     while (lo < hi) {
       const mid = (lo + hi + 1) >> 1;
-      if (makeAnswers(Ts[mid], inS, true) <= k) lo = mid; else hi = mid - 1;
+      if (makeAnswers(Ts[mid], inS, bar, true) <= k) lo = mid; else hi = mid - 1;
     }
-    res = makeAnswers(Ts[lo], inS);
+    res = makeAnswers(Ts[lo], inS, bar);
   }
   poolCache.set(key, res);
   return res;
@@ -209,15 +212,14 @@ function singleAnswer(t) {
 // doesn't depend on processing order. A native species with ≥ T observations
 // is an answer. A clade becomes an answer when it holds a native that isn't in
 // any answer yet, its observations reach T, and it holds at most one "strong"
-// answer (≥ WEAK_MERGE·T observations); it absorbs every answer inside it. So
-// two strong answers are never merged, but weaker ones can be pooled with a
+// answer (≥ bar observations); it absorbs every answer inside it. So two
+// strong answers are never merged, but weaker ones can be pooled with a
 // relative. A clade's observations are those of its native species plus
 // research-grade observations identified only to a taxon within it (genus,
 // section, …). Only clades lying entirely inside the scope (inS) can be answers.
 // With countOnly, returns just the number of answers.
-const WEAK_MERGE = 1.5;
-function makeAnswers(T, inS, countOnly = false) {
-  const n = N.length, B = WEAK_MERGE * T, obs = new Float64Array(n), strong = new Int32Array(n), unc = new Int32Array(n),
+function makeAnswers(T, inS, B, countOnly = false) {
+  const n = N.length, obs = new Float64Array(n), strong = new Int32Array(n), unc = new Int32Array(n),
         out = new Int32Array(n), isAns = new Uint8Array(n);
   for (let i = n - 1; i >= 0; i--) {
     if (isTip[i]) {
@@ -316,7 +318,7 @@ function hashStr(s) { let h = 2166136261; for (const c of s) { h ^= c.charCodeAt
 function today() {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Los_Angeles", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
 }
-const dailyPool = () => pool("daily", null, 600).slice().sort((a, b) => a.id - b.id);
+const dailyPool = () => pool("daily", null, 800).slice().sort((a, b) => a.id - b.id);
 function dailySecret(dateStr) {
   return pickSecret(dailyPool(), "balanced", seededRandom(hashStr("archaeplastida:" + dateStr)));
 }
