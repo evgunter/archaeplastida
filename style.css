@@ -76,6 +76,17 @@ details.more { font-size: .85rem; color: var(--muted); }
 #reveal img { width: 220px; max-width: 100%; border-radius: 10px; }
 #reveal .lineage { font-size: .85rem; color: var(--muted); margin-top: 6px; }
 #reveal .group { font-size: 1.05rem; margin: 2px 0 6px; }
+.grouplink { cursor: pointer; }
+#reveal .grouplink { text-decoration: underline dotted; text-underline-offset: 3px; }
+#reveal .grouplink:hover { color: var(--accent); }
+.badge.grp[data-answer] { cursor: pointer; }
+#info .back { margin-bottom: 8px; font-size: .85rem; padding: 2px 10px; }
+#info .genera { font-size: .88rem; line-height: 1.7; }
+#info .genera a { text-decoration: none; }
+#info h4 { margin: 14px 0 4px; font-weight: 600; }
+#info .members { columns: 2 280px; margin: 0; padding-left: 1.2em; font-size: .9rem; }
+#info .members li { cursor: pointer; break-inside: avoid; margin-bottom: 2px; }
+#info .members li:hover { color: var(--accent); }
 footer { margin: 30px auto 20px; color: var(--muted); font-size: .85rem; }
 a { color: var(--accent); }
 dialog { max-width: 620px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); color: var(--fg); }

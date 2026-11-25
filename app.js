@@ -1,6 +1,6 @@
 "use strict";
 // Must match the ?v= on app.js in index.html; bump both on every change.
-const ASSET_VERSION = 29;
+const ASSET_VERSION = 30;
 // ---------------------------------------------------------------- data
 let N, parent, depth, end, isTip, tips, size, coarse, tipByName = new Map();
 const PHOTO = { o: "https://inaturalist-open-data.s3.amazonaws.com/photos/", s: "https://static.inaturalist.org/photos/" };
@@ -482,7 +482,7 @@ function render() {
     for (let x = parent[t.node]; x >= 0; x = parent[x]) if (namesOf(x).length) lineage.push(namesOf(x)[0][0]);
     rv.innerHTML = `${t.photo ? `<img src="${photoUrl(t.photo)}" title="${esc(t.attr)}" alt="" data-tip="${t.node}">` : ""}
       <div><div style="font-size:1.3rem" data-tip="${t.node}">${tipHTML(t, false)}</div>
-      ${isSingle(s) ? "" : `<div class="group">plus other members of ${answerLabelHTML(s)}</div>`}
+      ${isSingle(s) ? "" : `<div class="group">plus other members of <span class="grouplink" data-answer="${s.node}" title="See every species in this answer">${answerLabelHTML(s)}</span></div>`}
       <div>${t.count.toLocaleString()} research-grade observations in California</div>
       <div><a href="https://www.inaturalist.org/taxa/${t.id}" target="_blank" rel="noopener">iNaturalist</a>${floraLinks(t)}</div>
       <div class="lineage">${lineage.reverse().join(" › ")}</div>
@@ -683,7 +683,7 @@ function renderTree() {
     if (x === secret && !G.won && !G.over) {
       row = `<span class="tnode secret${fr(x)}">??? secret plant</span>`;
     } else if (x === secret && !isTip[x]) {  // a pooled answer
-      row = `<span class="tnode secret found" title="${esc(cladeTitle(x))}">answer: ${answerLabelHTML(G.secret, { short: true })} <span class="cnt">${size[x].toLocaleString()} spp.</span></span>`;
+      row = `<span class="tnode secret found grouplink" data-answer="${x}" title="See every species in this answer">answer: ${answerLabelHTML(G.secret, { short: true })} <span class="cnt">${size[x].toLocaleString()} spp.</span></span>`;
     } else if (isTip[x]) {
       const t = tipOfNode.get(x);
       row = `<span class="tnode ${isAnc(secret, x) ? "secret found" : ""}${fr(x)}" data-tip="${x}">${tipHTML(t)}</span>`;
@@ -805,6 +805,33 @@ function floraLinks(t) {
     ` · <a href="https://herbariadb.berkeley.edu/eflora/search_eflora.php?name=${encodeURIComponent(t.sci)}" target="_blank" rel="noopener">Jepson eFlora</a>`;
 }
 
+// ---------------------------------------------------------------- group popup
+// Every species in a pooled answer: its genera with counts, then the species
+// by genus (natives first, most observed first). Clicking one opens its info.
+let infoBack = null, groupShown = null;
+function openGroup(a) {
+  const dlg = $("info"), body = $("info-body");
+  const byGenus = new Map();
+  for (const t of a.members) { const g = genusOf(t); if (!byGenus.has(g)) byGenus.set(g, []); byGenus.get(g).push(t); }
+  const genera = [...byGenus.entries()].sort((x, y) => y[1].length - x[1].length || (x[0] < y[0] ? -1 : 1));
+  const nat = a.members.filter(isNativeish).length;
+  body.innerHTML = `
+    <div class="info-head">${answerLabelHTML(a)}</div>
+    <p class="facts">${a.members.length} California species${nat < a.members.length ? ` (${nat} native)` : ""} in ${genera.length} ${genera.length === 1 ? "genus" : "genera"}. Guessing any of them counts.</p>
+    ${genera.length > 1 ? `<p class="genera">${genera.map(([g, ts]) => `<a href="#" data-jump="${esc(g)}"><i>${esc(g)}</i></a> <span class="cnt">${ts.length}</span>`).join(", ")}</p>` : ""}
+    ${genera.map(([g, ts]) => `<h4 data-genus="${esc(g)}"><i>${esc(g)}</i> <span class="cnt">${ts.length}</span></h4>
+      <ul class="members">${ts.map(t => `<li data-tip="${t.node}">${t.common ? esc(t.common) + " · " : ""}<i>${esc(t.sci)}</i> ${badge(t.means)} <span class="cnt">${t.count.toLocaleString()} obs.</span></li>`).join("")}</ul>`).join("")}`;
+  body.dataset.showing = "group";
+  infoBack = null; groupShown = a;
+  if (!dlg.open) dlg.showModal();
+  body.scrollTop = 0; dlg.scrollTop = 0;
+}
+// the pooled answer an element refers to: the secret, or one shown in Explore
+function answerForNode(n) {
+  if (G && G.secret && G.secret.node === n) return G.secret;
+  return xAnswer && xAnswer.get(n) || null;
+}
+
 // ---------------------------------------------------------------- species info popup
 // Opens instantly with what's already loaded; photos and the Wikipedia summary
 // are fetched from iNaturalist only when a plant is clicked (cached after).
@@ -819,13 +846,15 @@ function safeSummary(html) {  // keep text plus italics/bold only
   }).join("");
   return walk(doc.body);
 }
-function openInfo(t) {
+// back: a pooled answer to return to (when opened from its group view)
+function openInfo(t, back = null) {
   const dlg = $("info"), body = $("info-body");
   const lineage = [];
   for (let x = parent[t.node]; x >= 0; x = parent[x]) if (namesOf(x).length) lineage.push(x);
   const g = groupStatus("genus", genusOf(t)), f = t.family ? groupStatus("family", t.family) : { mono: true };
   const notes = [g.mono ? "" : groupNote("genus", genusOf(t)), f.mono ? "" : groupNote("family", t.family)].filter(Boolean);
-  body.innerHTML = `
+  infoBack = back;
+  body.innerHTML = `${back ? `<button class="back" data-back>← all ${back.members.length} species in the group</button>` : ""}
     <div class="info-head">${tipHTML(t, false)}</div>
     <div class="gallery"><div class="main">${t.photo ? `<img src="${photoUrl(t.photo)}" alt=""><div class="attr">${esc(t.attr)}</div>` : ""}</div>
       <div class="thumbs"></div></div>
@@ -905,7 +934,7 @@ function xItem(v, chain) {
   const a = xAnswer.get(v);
   return `<li class="xnode" data-node="${v}"><div class="xrow"><span class="xtoggle">▸</span> ${pre}` +
     `<span class="tnode internal" title="${esc(cladeTitle(v))}">${cladeLabelHTML(v)} <span class="cnt">${xCount[v].toLocaleString()} spp.</span></span>` +
-    (a ? ` <span class="badge grp" title="These species are pooled into one answer: ${a.obs.toLocaleString()} observations between them${a.coarse ? `, including ${a.coarse.toLocaleString()} identified only to genus or a higher group` : ""}. Guessing any of them wins.">one answer</span>` : "") + `</div></li>`;
+    (a ? ` <span class="badge grp" data-answer="${v}" title="Click to list them. These species are pooled into one answer: ${a.obs.toLocaleString()} observations between them${a.coarse ? `, including ${a.coarse.toLocaleString()} identified only to genus or a higher group` : ""}. Guessing any of them wins.">one answer</span>` : "") + `</div></li>`;
 }
 function toggleExplore(li) {
   const open = li.classList.toggle("open");
@@ -1023,10 +1052,22 @@ function wire() {
   wireScope();
   $("btn-help").onclick = () => $("help").showModal();
   document.addEventListener("click", e => {
+    const ga = e.target.closest("[data-answer]");
+    if (ga) { const a = answerForNode(+ga.dataset.answer); if (a) { e.stopPropagation(); openGroup(a); } return; }
+    if (e.target.closest("[data-back]")) { if (infoBack) openGroup(infoBack); return; }
+    const jump = e.target.closest("[data-jump]");
+    if (jump) {
+      e.preventDefault();
+      const h = [...$("info-body").querySelectorAll("h4[data-genus]")].find(x => x.dataset.genus === jump.dataset.jump);
+      if (h) h.scrollIntoView({ block: "start", behavior: "smooth" });
+      return;
+    }
     const el = e.target.closest("[data-tip]");
     if (!el || e.target.closest("a, .badge, .approx")) return;
     const t = tipOfNode.get(+el.dataset.tip);
-    if (t) openInfo(t);
+    // from a group's list, keep a way back to it
+    const fromGroup = $("info-body").dataset.showing === "group" && el.closest("#info-body") ? groupShown : null;
+    if (t) openInfo(t, fromGroup);
   });
   $("info-close").onclick = () => $("info").close();
   $("info").addEventListener("click", e => { if (e.target === $("info")) $("info").close(); });  // backdrop
