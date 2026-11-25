@@ -1,6 +1,6 @@
 "use strict";
 // Must match the ?v= on app.js in index.html; bump both on every change.
-const ASSET_VERSION = 28;
+const ASSET_VERSION = 29;
 // ---------------------------------------------------------------- data
 let N, parent, depth, end, isTip, tips, size, coarse, tipByName = new Map();
 const PHOTO = { o: "https://inaturalist-open-data.s3.amazonaws.com/photos/", s: "https://static.inaturalist.org/photos/" };
@@ -287,7 +287,7 @@ function answerLabelHTML(a, { short = false } = {}) {
 // Secret selection: pick a family (weighted by spread), then an answer in it,
 // in proportion to the answers' weights w (1, or obs^alpha; see POOL_RULES).
 // Play quality uses the same distribution (secretDistribution).
-// "species": every answer equally likely, i.e. family weight = total w (big families dominate);
+// "species": every answer equally likely, ignoring w (big families dominate);
 // "balanced": family weight = sqrt(total w) (default);
 // "family": every family equally likely.
 const familyOf = t => t.family || t.sci.split(" ")[0];
@@ -297,11 +297,12 @@ const familyOf = t => t.family || t.sci.split(" ")[0];
 // games the secret is vascular at least 90% of the time. Below the cap the
 // weights are untouched.
 const NV_CAP = 0.1;
+const weightOf = (a, spread) => spread === "species" ? 1 : a.w;
 function familyWeights(p, spread, capNV) {
   const fams = new Map();
   for (const t of p) { const f = familyOf(t); if (!fams.has(f)) fams.set(f, []); fams.get(f).push(t); }
   const groups = [...fams.values()];
-  const tot = g => g.reduce((s, a) => s + a.w, 0);
+  const tot = g => g.reduce((s, a) => s + weightOf(a, spread), 0);
   const w = groups.map(g => spread === "family" ? 1 : spread === "species" ? tot(g) : Math.sqrt(tot(g)));
   if (capNV && spread !== "family") {  // "even across families" stays literally even
     const nv = groups.map(g => !isVascular(g[0]));
@@ -321,8 +322,8 @@ function pickSecret(p, spread, rnd, capNV = true) {
     r -= w[i];
     if (r < 0 || i === groups.length - 1) {
       const g = groups[i];
-      let q = rnd() * g.reduce((s, a) => s + a.w, 0);
-      for (const a of g) { q -= a.w; if (q < 0) return a; }
+      let q = rnd() * g.reduce((s, a) => s + weightOf(a, spread), 0);
+      for (const a of g) { q -= weightOf(a, spread); if (q < 0) return a; }
       return g[g.length - 1];
     }
   }
@@ -331,7 +332,7 @@ function pickSecret(p, spread, rnd, capNV = true) {
 function secretDistribution(p, spread, capNV = true) {
   const { groups, w } = familyWeights(p, spread, capNV);
   const W = w.reduce((a, b) => a + b, 0), prob = new Map();
-  groups.forEach((g, i) => { const gw = g.reduce((s, a) => s + a.w, 0); for (const a of g) prob.set(a, w[i] / W * a.w / gw); });
+  groups.forEach((g, i) => { const gw = g.reduce((s, a) => s + weightOf(a, spread), 0); for (const a of g) prob.set(a, w[i] / W * weightOf(a, spread) / gw); });
   return prob;
 }
 function seededRandom(seed) {  // mulberry32
