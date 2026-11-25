@@ -68,12 +68,17 @@ h2 { font-size: 1.1rem; margin: 22px 0 8px; }
 .tnode .cnt { color: var(--muted); font-size: .8rem; }
 .tnode.secret { background: var(--hl); color: #222; font-weight: 700; }
 .tnode.secret.found { background: var(--accent); color: var(--bg); }
+.tnode.secret.found .cnt { color: inherit; opacity: .8; }
 .tnode .thumb { width: 26px; height: 26px; }
 .tnode.internal.path .n { color: var(--accent); }
 details.more { font-size: .85rem; color: var(--muted); }
 #reveal { margin: 14px 0; padding: 14px; border-radius: 12px; background: var(--accent-soft); border: 1px solid var(--accent); display: flex; gap: 14px; flex-wrap: wrap; }
 #reveal img { width: 220px; max-width: 100%; border-radius: 10px; }
 #reveal .lineage { font-size: .85rem; color: var(--muted); margin-top: 6px; }
+#reveal .group { flex-basis: 100%; }
+#reveal .members { columns: 2 260px; margin: 8px 0 0; padding-left: 1.2em; font-size: .9rem; }
+#reveal .members li { cursor: pointer; break-inside: avoid; }
+#reveal .members li.this { font-weight: 700; }
 footer { margin: 30px auto 20px; color: var(--muted); font-size: .85rem; }
 a { color: var(--accent); }
 dialog { max-width: 620px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); color: var(--fg); }
@@ -125,6 +130,7 @@ ul.sugg li.none { color: var(--muted); cursor: default; }
 .clade .qual { color: var(--muted); font-size: .78rem; cursor: help; }
 .toggle { display: inline-flex; gap: 6px; align-items: center; margin-top: 6px; font-size: .88rem; color: var(--muted); cursor: pointer; }
 .badge.p { background: #4b6e5a; color: #fff; cursor: help; }
+.badge.grp { background: var(--accent-soft); color: var(--fg); border: 1px solid var(--accent); cursor: help; }
 /* explore mode */
 #explore .explore-intro { color: var(--muted); font-size: .92rem; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 #explore-tree { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 10px 8px; overflow-x: auto; }

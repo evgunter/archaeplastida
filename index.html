@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Archaeplastida: guess the California plant</title>
-<link rel="stylesheet" href="style.css?v=23">
+<link rel="stylesheet" href="style.css?v=24">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌿</text></svg>">
 </head>
 <body>
@@ -24,7 +24,7 @@
     <select id="spread" title="How the secret is chosen (practice mode)">
       <option value="balanced" selected>Balanced across families</option>
       <option value="family">Even across families</option>
-      <option value="species">Even across species</option>
+      <option value="species">Even across answers</option>
     </select>
     <button id="btn-help" title="How to play">?</button>
   </nav>
@@ -86,15 +86,16 @@
   <h2>How to play</h2>
   <p>A secret plant has been chosen from among the plants observed growing wild in California. That includes flowering plants, conifers, ferns, mosses, liverworts, hornworts, and green and red algae: the whole of <em>Archaeplastida</em> that's found here.</p>
   <p>Guess any species. You'll see the <strong>smallest clade</strong> (branch of the tree of life) containing both your guess and the secret, along with how many California species that clade contains. Narrow down until you guess the exact species.</p>
+  <p>Some answers are <strong>groups</strong> rather than single species. Each difficulty has an observation threshold: natives with at least that many California observations on iNaturalist are answers on their own. Rarer natives are pooled with their closest relatives into the smallest clade whose observations together reach the threshold, counting observations identified only to genus or another higher group. If the secret is such a group, guessing any species in it wins. A clade that would hold two or more existing answers is never pooled, so some rare species still aren't answers.</p>
   <p>Many clades have no formal name. They show up as <em>unnamed clade</em> along with the nearest named group that contains them. The tree resolves splits wherever published phylogenies support them, not just at named ranks.</p>
   <p>Stuck? <strong>Hint: narrower clade</strong> names a smaller group that contains the secret. <strong>Hint: list genera</strong> lists every genus in the clade you've narrowed it to (once that clade has 50 or fewer genera).</p>
   <p>A <span class="approx">≈</span> before a name means the group isn't exactly a clade in this tree. Hover over it to see how many of its species fall inside.</p>
-  <p>The secret isn't chosen evenly among species, which would make more than one in five secrets a sunflower or pea relative. By default a family is picked first (bigger families somewhat more likely, weighted by the square root of their size), then a species within it. Practice mode lets you change this.</p>
+  <p>The secret isn't chosen evenly among species, which would make more than one in five secrets a sunflower or pea relative. By default a family is picked first (bigger families somewhat more likely, weighted by the square root of their number of answers), then an answer within it. Practice mode lets you change this.</p>
   <p>In practice mode you can <strong>limit the secret to any named clade</strong>, such as ferns, Asteraceae, oaks, or land plants, or to algae or non-vascular plants. The game then starts with that clade already known. The difficulty setting is scaled to the clade: "easy" means its most-observed natives.</p>
-  <p><strong>Play quality</strong> scores each guess by how much it would narrow things down on average, before you know the answer, compared with the best possible guess at that point. The remaining possibilities are weighted the way the game picks secrets, with families balanced as described above. Daily, easy and medium games draw from the most-observed natives, and you can't see exactly where that cutoff falls. So species above the cutoff count fully, and natives below it still count a little, less the rarer they are. A score of 100% means no guess could have been more informative. The final score is the average over your guesses. Hover over a guess's score for details. In the copied result, 🟩 means at least 97%, 🟨 at least 80%, 🟧 anything that rules out at least one species, and 🟥 a guess that can't rule anything out. 🔍 and 📋 mark where you took a "narrower clade" or "list genera" hint.</p>
+  <p><strong>Play quality</strong> scores each guess by how much it would narrow things down on average, before you know the answer, compared with the best possible guess at that point. The remaining possible answers are weighted the way the game picks secrets, with families balanced as described above. A score of 100% means no guess could have been more informative. The final score is the average over your guesses. Hover over a guess's score for details. In the copied result, 🟩 means at least 97%, 🟨 at least 80%, 🟧 anything that rules out at least one species, and 🟥 a guess that can't rule anything out. 🔍 and 📋 mark where you took a "narrower clade" or "list genera" hint.</p>
   <p>iNaturalist lists no California status for most algae, mosses and liverworts. These are marked <span class="badge p">probably native</span> and can be secrets. Unless you limit practice to a clade or choose "even across families", the secret is a vascular plant at least 90% of the time.</p>
   <p>Practice results come with a link that lets someone else play the same game.</p>
-  <p><strong>Explore</strong> isn't a game. It shows the tree for the species in the chosen difficulty pool and clade, starting collapsed, so you can open clades to browse them.</p>
+  <p><strong>Explore</strong> isn't a game. It shows the tree for the species in the chosen difficulty pool and clade (marking answers that are groups), starting collapsed, so you can open clades to browse them.</p>
   <p>The <strong>daily</strong> plant is the same for everyone and changes at midnight California time.</p>
   <p>Badges: <span class="badge e">endemic</span> <span class="badge n">native</span> <span class="badge i">introduced</span> <span class="badge p">probably native</span>
     <span class="badge np">non-monophyletic genus</span>. The last means the smallest clade in this tree containing every California species of that genus also contains species of other genera, so your guesses can narrow things to a clade that spans several genera. It reflects the source phylogeny, which is sometimes driven by a single large automated study. Hover over the badge for details.</p>
@@ -110,6 +111,6 @@
 
 <footer>Photos © their iNaturalist observers (licenses shown on hover). <a href="https://github.com/evgunter/archaeplastida">Source &amp; methods</a></footer>
 <!-- bump ?v= on every change to app.js / style.css / data so browsers fetch the new files -->
-<script src="app.js?v=23"></script>
+<script src="app.js?v=24"></script>
 </body>
 </html>

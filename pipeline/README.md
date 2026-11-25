@@ -65,13 +65,27 @@ $W/venv/bin/python pipeline/build_tree.py --inat $W/inat_ca.json \
   --taxa $D/inat/taxa.csv.gz --otol $W/otol_arch.pkl --gbotb $W/gbotb.pkl \
   --ott $D/ott/ott3.7.3 --tnrs-cache $W/tnrs_cache.json \
   --taxon-common $W/taxon_common.json --out data/game.json
+python3 pipeline/fetch_coarse_obs.py $W/coarse_obs.json
+python3 pipeline/add_coarse_obs.py $W/coarse_obs.json data/game.json
 ```
+
+## Coarse observations (`add_coarse_obs.py`)
+
+To pool rare species into higher-taxon answers (see the main README), the game needs
+observations identified only above species. `fetch_coarse_obs.py` gets every taxon's
+direct California observation count from iNat's `/observations/taxonomy`, verifiable
+(research grade + needs ID): research-grade alone has only ~22k such observations, against
+~1.85M verifiable. `add_coarse_obs.py` adds each taxon's count to the smallest tree node holding
+all its California species, so it only counts toward clades that contain every species
+it could be. Taxa with no species in the tree are dropped (~8k observations). Pass `--rg` to
+use research grade only.
 
 ## Output format (`data/game.json`)
 
 `nodes` is in preorder, so a parent always comes before its children. Each entry is one of:
 
-- internal: `[parent, [[name, rank, common_name], ...]]` (an empty list means unnamed).
+- internal: `[parent, [[name, rank, common_name], ...], coarse_obs]` (an empty list means unnamed;
+  `coarse_obs`, from `add_coarse_obs.py`, is omitted when 0).
   Approximate names carry three more numbers: `[name, rank, common, in_clade, taxon_total, clade_size]`
 - species: `[parent, scientific_name, common_name, status, n_obs, inat_id, photo, photo_attribution, source, family]`
   where status is `e`ndemic / `n`ative / `i`ntroduced / empty, and source is `o`

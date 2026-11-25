@@ -1,8 +1,8 @@
 "use strict";
 // Must match the ?v= on app.js in index.html; bump both on every change.
-const ASSET_VERSION = 23;
+const ASSET_VERSION = 24;
 // ---------------------------------------------------------------- data
-let N, parent, depth, end, isTip, tips, size, tipByName = new Map();
+let N, parent, depth, end, isTip, tips, size, coarse, tipByName = new Map();
 const PHOTO = { o: "https://inaturalist-open-data.s3.amazonaws.com/photos/", s: "https://static.inaturalist.org/photos/" };
 const RANK_ORDER = ["genus", "subtribe", "tribe", "subfamily", "family", "superfamily", "suborder", "order",
   "superorder", "subclass", "class", "superclass", "subphylum", "phylum", "subkingdom", "kingdom"];
@@ -19,12 +19,14 @@ async function load() {
   N = d.nodes; DATA_BUILT = d.built;
   const n = N.length;
   parent = new Int32Array(n); depth = new Int32Array(n); end = new Int32Array(n);
-  isTip = new Uint8Array(n); size = new Int32Array(n);
+  isTip = new Uint8Array(n); size = new Int32Array(n); coarse = new Int32Array(n);
   tips = [];
   for (let i = 0; i < n; i++) {
     parent[i] = N[i][0];
     depth[i] = parent[i] < 0 ? 0 : depth[parent[i]] + 1;
-    if (!Array.isArray(N[i][1])) {
+    // observations identified only to a taxon whose California species all fall in this clade
+    if (Array.isArray(N[i][1])) coarse[i] = N[i][2] || 0;
+    else {
       isTip[i] = 1;
       const [, sci, common, means, count, id, photo, attr, src, family] = N[i];
       const t = { node: i, sci, common, means, count, id, photo, attr, src, family,
@@ -153,8 +155,10 @@ function tipHTML(t, thumb = true) {
 
 // ---------------------------------------------------------------- pools & seeding
 // Practice pools. `scope` is null (everything), a clade node, or one of the
-// non-clade presets below. Difficulty is scaled to the scope: "easy" is the
-// most-observed ~5% of its natives (at least 10), "medium" ~25% (at least 25).
+// non-clade presets below. Difficulty is an observation threshold: the count
+// of the Nth most-observed native in the scope. "easy" is the top ~5% of its
+// natives (at least 10; 300 overall), "medium" ~25% (at least 25; 1500 overall),
+// "hard" every native.
 const PRESETS = {
   algae: { label: "algae (red + green; not a clade)",
            test: t => inGroup(t, ["Rhodophyta", "Chlorophyta", "Charophyceae", "Zygnematophyceae"]) },
@@ -167,18 +171,84 @@ function inGroup(t, names) {
 }
 // native, endemic, or "probably native" (see load()) species can be secrets
 const isNativeish = t => t.means === "n" || t.means === "e" || t.means === "p";
-function pool(kind, scope = null) {
-  let all = tips;
-  if (typeof scope === "number") all = tips.filter(t => isAnc(scope, t.node));
-  else if (scope && PRESETS[scope]) all = tips.filter(PRESETS[scope].test);
-  const natives = all.filter(t => isNativeish(t)).sort((a, b) => b.count - a.count || (a.sci < b.sci ? -1 : 1));
-  if (!natives.length || kind === "all") return all.slice();
-  const global = !scope;
-  switch (kind) {
-    case "easy": return natives.slice(0, global ? 300 : Math.max(10, Math.round(natives.length * 0.05)));
-    case "medium": return natives.slice(0, global ? 1500 : Math.max(25, Math.round(natives.length * 0.25)));
-    default: return natives;
+const scopeTest = sc => sc === null || sc === undefined ? () => true
+  : typeof sc === "number" ? t => isAnc(sc, t.node) : PRESETS[sc].test;
+// A pool is a list of answers. An answer is a native species with at least T
+// California observations, or a clade pooling rarer natives until together they
+// reach T; guessing any species in it wins. See makeAnswers.
+const poolCache = new Map();
+function pool(kind, sc = null, rank = null) {
+  const key = kind + "|" + sc + "|" + rank;
+  if (poolCache.has(key)) return poolCache.get(key);
+  const inS = scopeTest(sc), all = tips.filter(inS);
+  const natives = all.filter(isNativeish).sort((a, b) => b.count - a.count);
+  let res;
+  if (!natives.length || kind === "all") res = all.map(t => singleAnswer(t));
+  else {
+    const global = sc === null || sc === undefined;
+    const k = rank || { easy: global ? 300 : Math.max(10, Math.round(natives.length * 0.05)),
+                        medium: global ? 1500 : Math.max(25, Math.round(natives.length * 0.25)) }[kind];
+    res = makeAnswers(k ? natives[Math.min(k, natives.length) - 1].count : 0, inS);
   }
+  poolCache.set(key, res);
+  return res;
+}
+function singleAnswer(t) {
+  return { node: t.node, members: [t], rep: t, sci: t.sci, id: t.id, family: t.family, obs: t.count, coarse: 0 };
+}
+// Pooling, bottom-up so the smallest qualifying clade wins and the result
+// doesn't depend on processing order. A native species with ≥ T observations
+// is an answer. A clade becomes an answer when it holds a native that isn't in
+// any answer yet, its observations reach T, and it holds at most one answer
+// already (which it then absorbs), so no two answers are ever forced to merge.
+// A clade's observations are those of its native species plus observations
+// identified only to a taxon within it (genus, section, …). Only clades lying
+// entirely inside the scope (inS) can be answers.
+function makeAnswers(T, inS) {
+  const n = N.length, obs = new Float64Array(n), nAns = new Int32Array(n), unc = new Int32Array(n),
+        out = new Int32Array(n), isAns = new Uint8Array(n);
+  for (let i = n - 1; i >= 0; i--) {
+    if (isTip[i]) {
+      const t = tipOfNode.get(i);
+      if (!inS(t)) out[i] = 1;
+      else if (isNativeish(t)) {
+        obs[i] = t.count;
+        if (t.count >= T) { isAns[i] = 1; nAns[i] = 1; } else unc[i] = 1;
+      }
+    } else {
+      obs[i] += coarse[i];
+      if (unc[i] && !out[i] && obs[i] >= T && nAns[i] <= 1) { isAns[i] = 1; nAns[i] = 1; unc[i] = 0; }
+    }
+    const p = parent[i];
+    if (p >= 0) { obs[p] += obs[i]; nAns[p] += nAns[i]; unc[p] += unc[i]; out[p] += out[i]; }
+  }
+  const res = [];
+  for (let i = 0; i < n; i = isAns[i] ? end[i] : i + 1) {  // outermost answers only
+    if (!isAns[i]) continue;
+    if (isTip[i]) { res.push(singleAnswer(tipOfNode.get(i))); continue; }
+    const members = [];
+    for (let x = i; x < end[i]; x++) if (isTip[x]) members.push(tipOfNode.get(x));
+    // natives first, most observed first
+    members.sort((a, b) => isNativeish(b) - isNativeish(a) || b.count - a.count);
+    const fams = new Map();
+    for (const t of members) if (isNativeish(t)) fams.set(familyOf(t), (fams.get(familyOf(t)) || 0) + 1);
+    const family = [...fams.entries()].sort((a, b) => b[1] - a[1])[0][0];
+    let c = 0; for (let x = i; x < end[i]; x++) c += coarse[x];
+    res.push({ node: i, members, rep: members[0], sci: members[0].sci, id: members[0].id, family, obs: obs[i], coarse: c, T });
+  }
+  return res;
+}
+const isSingle = a => a.members.length === 1;
+const answerOf = (p, t) => p.find(a => isAnc(a.node, t.node));
+const nativeCount = a => a.members.filter(isNativeish).length;
+// "Lomatium", or for an unnamed clade the genera it spans
+function answerLabelHTML(a, { short = false } = {}) {
+  if (isSingle(a)) return `<i>${esc(a.sci)}</i>`;
+  if (namesOf(a.node).length) return cladeLabelHTML(a.node, { short });
+  const g = generaIn(a.node).map(x => x[0]);
+  if (g.length === 1) return `<i>${esc(g[0])}</i> <span class="cnt">(${a.members.length} of its species)</span>`;
+  return (g.length <= 3 ? g.map(x => `<i>${esc(x)}</i>`).join(", ")
+    : `${g.slice(0, 2).map(x => `<i>${esc(x)}</i>`).join(", ")} and ${g.length - 2} more genera`) + ` <span class="cnt">(a clade)</span>`;
 }
 // Secret selection: pick a family (weighted by spread), then a species in it.
 // "species": every species equally likely (big families dominate);
@@ -231,13 +301,14 @@ function hashStr(s) { let h = 2166136261; for (const c of s) { h ^= c.charCodeAt
 function today() {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Los_Angeles", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
 }
-const dailyPool = () => pool("medium").slice(0, 600).sort((a, b) => a.id - b.id);
+// threshold: the 600th most-observed native's count
+const dailyPool = () => pool("daily", null, 600).slice().sort((a, b) => a.id - b.id);
 function dailySecret(dateStr) {
   return pickSecret(dailyPool(), "balanced", seededRandom(hashStr("archaeplastida:" + dateStr)));
 }
 
 // ---------------------------------------------------------------- game state
-let G; // {mode, secret, guesses:[tip], hints:int, over:bool, won:bool, date}
+let G; // {mode, secret: answer, guesses:[tip], hints:int, over:bool, won:bool, date}
 const $ = id => document.getElementById(id);
 
 function newGame(mode, seed = null) {
@@ -248,11 +319,12 @@ function newGame(mode, seed = null) {
     const saved = JSON.parse(localStorage.getItem("arch-daily-v2") || "null");
     let secret = dailySecret(date);
     const resume = saved && saved.date === date;
-    // a game already started today keeps its plant even if the data was updated since
-    if (resume && saved.secret && tipByName.get(saved.secret)) secret = tipByName.get(saved.secret);
     const dp = dailyPool();
-    G = { mode, date, secret, guesses: [], hints: 0, over: false, won: false, secretPool: dp, poolSize: dp.length, spread: "balanced", capNV: true,
-          eligible: eligibleFor("medium", null, dp), cutoff: poolCutoff("medium", dp) };
+    // a game already started today keeps its plant even if the data was updated since
+    // (saved by its most-observed species)
+    const st = resume && saved.secret && tipByName.get(saved.secret);
+    if (st) secret = answerOf(dp, st) || singleAnswer(st);
+    G = { mode, date, secret, guesses: [], hints: 0, over: false, won: false, secretPool: dp, poolSize: dp.length, spread: "balanced", capNV: true };
     if (resume) {
       G.guesses = saved.guesses.map(s => tipByName.get(s)).filter(Boolean);
       G.hints = saved.hints; G.over = saved.over; G.won = saved.won;
@@ -266,7 +338,7 @@ function newGame(mode, seed = null) {
     // the non-vascular cap applies to unrestricted games, not to a chosen clade or preset
     const capNV = scope === null;
     G = { mode, seed, secret: pickSecret(p, $("spread").value, seededRandom(seed), capNV), guesses: [], hints: 0, over: false, won: false,
-          secretPool: p, spread: $("spread").value, capNV, eligible: eligibleFor($("pool").value, scope, p), cutoff: poolCutoff($("pool").value, p),
+          secretPool: p, spread: $("spread").value, capNV,
           start: typeof scope === "number" ? scope : 0, poolSize: p.length, scope };
   }
   $("btn-daily").classList.toggle("active", mode === "daily");
@@ -286,10 +358,12 @@ function save() {
 function makeGuess(t) {
   if (G.over || G.guesses.includes(t)) return;
   G.guesses.push(t);
-  if (t === G.secret) { G.over = true; G.won = true; }
+  if (isWin(t)) { G.over = true; G.won = true; }
   save(); render();
 }
 
+// guessing any species in the secret answer wins
+const isWin = t => isAnc(G.secret.node, t.node);
 // deepest clade known to contain the secret: from guesses, or the clade
 // practice mode was limited to
 function bestClade() {
@@ -328,18 +402,19 @@ function render() {
   const st = $("status");
   const gcount = G.guesses.length;
   if (G.won) {
-    st.innerHTML = `<div class="big">${plantEmoji(s)} Got it in ${gcount} guess${gcount === 1 ? "" : "es"}${G.hints ? ` (${G.hints} hint${G.hints > 1 ? "s" : ""})` : ""}!</div>
+    st.innerHTML = `<div class="big">${plantEmoji(G.guesses[gcount - 1])} Got it in ${gcount} guess${gcount === 1 ? "" : "es"}${G.hints ? ` (${G.hints} hint${G.hints > 1 ? "s" : ""})` : ""}!</div>
       <div class="sub">Play quality ${pct(playQuality().overall)}: how close your guesses came, on average, to the most informative guess available at each step.</div>`;
   } else if (G.over) {
     st.innerHTML = `<div class="big">The answer was revealed.</div>
       ${gcount ? `<div class="sub">Play quality ${pct(playQuality().overall)}: how close your guesses came, on average, to the most informative guess available at each step.</div>` : ""}`;
   } else if (!gcount && !G.start) {
     st.innerHTML = `<div class="big">${G.mode === "daily" ? "Today's plant" : "A secret plant"} is waiting.</div>
-      <div class="sub">It's one of ${(G.poolSize || tips.length).toLocaleString()} possible species${scope && PRESETS[scope] ? ` (${esc(PRESETS[scope].label)})` : ""}. Start with any plant you know.</div>`;
+      <div class="sub">It's one of ${G.poolSize.toLocaleString()} possible answers${G.mode === "practice" && scope && PRESETS[scope] ? ` (${esc(PRESETS[scope].label)})` : ""}. Start with any plant you know.</div>
+      ${groupedNote()}`;
   } else {
     st.innerHTML = `<div class="big">The secret is in: ${cladeLabelHTML(best)}</div>
-      <div class="sub">${size[best].toLocaleString()} California species in this clade${gcount ? ` · ${gcount} guess${gcount === 1 ? "" : "es"}` : ""}${G.start && best === G.start && G.poolSize < size[best] ? ` · secret drawn from ${G.poolSize.toLocaleString()} of them` : ""}</div>
-      <div class="crumbs">${lineageHTML(best)}</div>`;
+      <div class="sub">${size[best].toLocaleString()} California species in this clade${gcount ? ` · ${gcount} guess${gcount === 1 ? "" : "es"}` : ""}${G.start && best === G.start ? ` · the secret is one of ${G.poolSize.toLocaleString()} possible answers in it` : ""}</div>
+      <div class="crumbs">${lineageHTML(best)}</div>${G.start && best === G.start && !gcount ? groupedNote() : ""}`;
   }
   $("guess").disabled = G.over;
   $("btn-hint").disabled = G.over || !nextHint();
@@ -356,25 +431,38 @@ function render() {
     ? `💡 The secret is in ${cladeLabelHTML(h.n)} <span class="cnt">(${size[h.n]} species)</span>`
     : `💡 Genera in ${cladeLabelHTML(h.n, { short: true })} <span class="cnt">(${size[h.n]} species)</span>: ${generaHTML(h.n)}`).join("<br>");
 
-  // reveal
+  // reveal: the species guessed (or, if revealed, the answer's most-observed species),
+  // and for a pooled answer, every species in it
   const rv = $("reveal");
   if (G.over) {
     rv.hidden = false;
+    const t = G.won ? G.guesses[gcount - 1] : s.rep;
     const lineage = [];
-    for (let x = parent[s.node]; x >= 0; x = parent[x]) if (namesOf(x).length) lineage.push(namesOf(x)[0][0]);
-    rv.innerHTML = `${s.photo ? `<img src="${photoUrl(s.photo)}" title="${esc(s.attr)}" alt="" data-tip="${s.node}">` : ""}
-      <div><div style="font-size:1.3rem" data-tip="${s.node}">${tipHTML(s, false)}</div>
-      <div>${s.count.toLocaleString()} research-grade observations in California</div>
-      <div><a href="https://www.inaturalist.org/taxa/${s.id}" target="_blank" rel="noopener">iNaturalist</a> ·
-           ${floraLinks(s)}</div>
+    for (let x = parent[t.node]; x >= 0; x = parent[x]) if (namesOf(x).length) lineage.push(namesOf(x)[0][0]);
+    const group = isSingle(s) ? "" : `<div class="group">
+        <div>This answer is a group, ${answerLabelHTML(s)}: guessing any of its ${s.members.length} California species counted.
+          <span class="cnt">${s.rep.count >= s.T
+            ? `<i>${esc(s.rep.sci)}</i> is common enough to be an answer on its own; its relatives here aren't, so they're pooled with it.`
+            : `None of them has enough observations to be an answer on its own, so they're pooled:
+               ${s.obs.toLocaleString()} observations between them${s.coarse ? `, including ${s.coarse.toLocaleString()} identified only to genus or a higher group` : ""}.`}</span></div>
+        <ul class="members">${s.members.map(m => `<li data-tip="${m.node}" class="${m === t ? "this" : ""}">${m.common ? esc(m.common) + " · " : ""}<i>${esc(m.sci)}</i> ${badge(m.means)}</li>`).join("")}</ul></div>`;
+    rv.innerHTML = `${t.photo ? `<img src="${photoUrl(t.photo)}" title="${esc(t.attr)}" alt="" data-tip="${t.node}">` : ""}
+      <div><div style="font-size:1.3rem" data-tip="${t.node}">${tipHTML(t, false)}</div>
+      <div>${t.count.toLocaleString()} research-grade observations in California</div>
+      <div><a href="https://www.inaturalist.org/taxa/${t.id}" target="_blank" rel="noopener">iNaturalist</a>${floraLinks(t)}</div>
       <div class="lineage">${lineage.reverse().join(" › ")}</div>
-      ${s.src === "g" ? `<div class="lineage">Not in the Open Tree synthesis; placed using taxonomy.</div>` : ""}</div>`;
+      ${t.src === "g" ? `<div class="lineage">Not in the Open Tree synthesis; placed using taxonomy.</div>` : ""}</div>${group}`;
   } else rv.hidden = true;
 
   renderList(best);
   renderTree();
 }
 
+// before the first guess: how many answers are pooled groups
+function groupedNote() {
+  const k = G.secretPool.filter(a => !isSingle(a)).length;
+  return k ? `<div class="sub">${k.toLocaleString()} of them are groups of related, less-observed species: guessing any species in the group counts.</div>` : "";
+}
 // every named clade from the root down to node i (inclusive)
 function lineageHTML(i) {
   const out = [];
@@ -432,18 +520,20 @@ function plantEmoji(t) {
 }
 
 // ---------------------------------------------------------------- play quality
-// Candidates are weighted by their actual chance of having been picked as the
-// secret (the game's pool and family weighting), restricted to what's still
-// consistent with the guesses so far. A guess's quality compares how much of
-// that probability it would rule out on average (before knowing the answer)
-// with the best possible guess at that point.
+// Candidates are the pool's answers, weighted by their actual chance of having
+// been picked as the secret (the game's pool and family weighting), restricted
+// to what's still consistent with the guesses so far. A guess's quality
+// compares how much of that probability it would rule out on average (before
+// knowing the answer) with the best possible guess at that point. A pooled
+// answer is one candidate: guessing any species in it wins.
 function scopeTips(sc) {
   if (sc === null || sc === undefined) return tips;
-  return typeof sc === "number" ? tips.filter(t => isAnc(sc, t.node)) : tips.filter(PRESETS[sc].test);
+  return tips.filter(scopeTest(sc));
 }
-// expected fraction of candidate probability ruled out by guessing tip node g,
-// given prefix sums P of candidate probability over preorder
-// (mass in subtree v = P[end[v]] - P[v]) and total mass M
+// expected fraction of candidate probability ruled out by a guess whose
+// answer (or own tip, if it's in no answer) is node g, given prefix sums P of
+// candidate probability over preorder (mass in subtree v = P[end[v]] - P[v])
+// and total mass M
 function expectedRuledOut(g, P, M) {
   const mass = v => P[end[v]] - P[v];
   let sumSq = 0, prev = g;
@@ -452,30 +542,20 @@ function expectedRuledOut(g, P, M) {
   for (let v = parent[g]; v >= 0; prev = v, v = parent[v]) { const c = mass(v) - mass(prev); sumSq += c * c; }
   return 1 - sumSq / (M * M);
 }
-// Species a player can't rule out from what's visible: right status (native,
-// endemic or probably native; anything in "Everything" mode) and inside the
-// clade limit. Modes that draw from the N most-observed natives have a cutoff
-// players can't see exactly. Species at or above it count fully (knowing a
-// plant is in the pool is no worse a guess); below it the weight falls off as
-// 2c² / (c² + cutoff²) for c California observations: 1 at the cutoff,
-// ~0.4 at half of it, ~0.12 at a quarter.
-function eligibleFor(kind, sc, p) {
-  const all = scopeTips(sc), inPool = new Set(p);
-  return kind === "all" ? all : all.filter(t => isNativeish(t) || inPool.has(t));
-}
-const poolCutoff = (kind, p) => ["easy", "medium"].includes(kind) && p.length ? Math.min(...p.map(t => t.count)) : null;
-function qualityPrior() {
-  const elig = G.eligible || G.secretPool, cut = G.cutoff, w = new Float64Array(N.length);
-  for (const [t, pr] of secretDistribution(elig, G.spread, G.capNV))
-    w[t.node] = pr * (cut && t.count < cut ? 2 * t.count * t.count / (t.count * t.count + cut * cut) : 1);
-  return w;
+// the answer node containing each node (-1 if none)
+function answerNodes(p) {
+  const own = new Int32Array(N.length).fill(-1);
+  for (const a of p) own.fill(a.node, a.node, end[a.node]);
+  return own;
 }
 let qualityCache = null;
 function playQuality() {
   const key = G.secret.node + "|" + G.guesses.map(g => g.node).join(",") + "|" + (G.hintLog || []).map(h => h.n + "@" + h.at).join(",");
   if (qualityCache && qualityCache.key === key) return qualityCache.val;
-  const guessable = scopeTips(G.mode === "practice" ? G.scope : null);
-  const w = qualityPrior();
+  const own = answerNodes(G.secretPool), unit = x => own[x] >= 0 ? own[x] : x;
+  const guessable = [...new Set(scopeTips(G.mode === "practice" ? G.scope : null).map(t => unit(t.node)))];
+  const w = new Float64Array(N.length);
+  for (const [a, pr] of secretDistribution(G.secretPool, G.spread, G.capNV)) w[a.node] = pr;
   if (!w[G.secret.node]) w[G.secret.node] = 1e-9;  // e.g. a resumed daily after a data update
   const P = new Float64Array(N.length + 1);
   const total = () => { let m = 0, n = 0; for (let i = 0; i < N.length; i++) { P[i] = m; m += w[i]; if (w[i] > 0) n++; } P[N.length] = m; return [m, n]; };
@@ -485,10 +565,10 @@ function playQuality() {
     for (const h of G.hintLog || []) if (h.t === "c" && h.at === i) restrict(x => isAnc(h.n, x));
     const [M, nLeft] = total();
     let best = 0;
-    for (const t of guessable) { const e = expectedRuledOut(t.node, P, M); if (e > best) best = e; }
-    const mine = expectedRuledOut(g.node, P, M);
+    for (const u of guessable) { const e = expectedRuledOut(u, P, M); if (e > best) best = e; }
+    const mine = expectedRuledOut(unit(g.node), P, M);
     // what this guess actually told the player
-    if (g === G.secret) restrict(() => false);
+    if (isWin(g)) restrict(() => false);
     else {
       const m = mrca(g.node, G.secret.node);
       let side = g.node; while (parent[side] !== m) side = parent[side];
@@ -511,12 +591,12 @@ function renderList(best) {
   const Q = playQuality();
   const rows = G.guesses.map((g, i) => ({ g, i, m: mrca(g.node, G.secret.node), q: Q.per[i] }));  // guess order
   ol.innerHTML = rows.map(({ g, i, m, q }) => {
-    const win = g === G.secret;
-    const qTitle = `Guess ${i + 1}: ruled out ${pct(q.ruledOut)} of the remaining chance (${q.before.toLocaleString()} possible secrets were left, ` +
+    const win = isWin(g);
+    const qTitle = `Guess ${i + 1}: ruled out ${pct(q.ruledOut)} of the remaining chance (${q.before.toLocaleString()} possible answers were left, ` +
       `weighted by how the game picks them). On average, before knowing the answer, it would rule out ${pct(q.expected)}; ` +
       `the best possible guess, ${pct(q.best)}. Quality ${pct(q.quality)}.`;
     return `<li class="${win ? "win" : ""}" data-tip="${g.node}">${tipHTML(g)}
-      <div class="clade">${win ? "<span class='cname'>✔ correct!</span>" :
+      <div class="clade">${win ? `<span class='cname'>✔ correct!</span>${isSingle(G.secret) ? "" : `<div class="csize">in the answer group (${G.secret.members.length} species)</div>`}` :
         `<div class="cname" title="${esc(cladeTitle(m))}">${cladeLabelHTML(m, { short: true })}</div><div class="csize">${size[m].toLocaleString()} species</div>`}
         <div class="qual" title="${esc(qTitle)}">#${i + 1} · ruled out ${pct(q.ruledOut)} · quality ${pct(q.quality)}</div>
         <div class="bar" style="width:${Math.max(4, 120 * q.quality).toFixed(0)}px"></div></div></li>`;
@@ -567,9 +647,11 @@ function renderTree() {
     let row;
     if (x === secret && !G.won && !G.over) {
       row = `<span class="tnode secret${fr(x)}">??? secret plant</span>`;
+    } else if (x === secret && !isTip[x]) {  // a pooled answer
+      row = `<span class="tnode secret found" title="${esc(cladeTitle(x))}">answer: ${answerLabelHTML(G.secret, { short: true })} <span class="cnt">${size[x].toLocaleString()} spp.</span></span>`;
     } else if (isTip[x]) {
       const t = tipOfNode.get(x);
-      row = `<span class="tnode ${x === secret ? "secret found" : ""}${fr(x)}" data-tip="${x}">${tipHTML(t)}</span>`;
+      row = `<span class="tnode ${isAnc(secret, x) ? "secret found" : ""}${fr(x)}" data-tip="${x}">${tipHTML(t)}</span>`;
     } else {
       row = `<span class="tnode internal ${onPath ? "path" : ""}${fr(x)}" title="${esc(cladeTitle(x))}">${cladeLabelHTML(x)} <span class="cnt">${size[x].toLocaleString()} spp.</span></span>`;
     }
@@ -746,9 +828,10 @@ function openInfo(t) {
 
 // ---------------------------------------------------------------- explore mode
 // A browsable tree of the species in the chosen difficulty pool and clade.
+// A pooled answer is marked, and shows all its species.
 // Branch points with a single branch inside the selection are skipped, their
 // names shown as a chain on the next row. Children are built on first expand.
-let exploring = false, xCount = null;
+let exploring = false, xCount = null, xAnswer = null;
 function enterExplore() {
   exploring = true;
   for (const m of ["daily", "practice", "explore"]) $("btn-" + m).classList.toggle("active", m === "explore");
@@ -760,7 +843,8 @@ function enterExplore() {
 function renderExplore() {
   const sel = pool($("pool").value, scope);
   const inSel = new Uint8Array(N.length);
-  for (const t of sel) inSel[t.node] = 1;
+  xAnswer = new Map();
+  for (const a of sel) { for (const t of a.members) inSel[t.node] = 1; if (!isSingle(a)) xAnswer.set(a.node, a); }
   xCount = new Int32Array(N.length);  // selected species below each node
   for (let i = N.length - 1; i >= 0; i--) { xCount[i] += inSel[i]; if (parent[i] >= 0) xCount[parent[i]] += xCount[i]; }
   const root = typeof scope === "number" ? scope : 0;
@@ -783,8 +867,10 @@ function xDescend(v) {
 function xItem(v, chain) {
   const pre = chain.length ? `<span class="xchain">${chain.map(x => `<span title="${esc(cladeTitle(x))}">${cladeLabelHTML(x, { short: true })}</span>`).join(" › ")} › </span>` : "";
   if (isTip[v]) return `<li class="xleaf"><div class="xrow">${pre}<span class="tnode" data-tip="${v}">${tipHTML(tipOfNode.get(v))}</span></div></li>`;
+  const a = xAnswer.get(v);
   return `<li class="xnode" data-node="${v}"><div class="xrow"><span class="xtoggle">▸</span> ${pre}` +
-    `<span class="tnode internal" title="${esc(cladeTitle(v))}">${cladeLabelHTML(v)} <span class="cnt">${xCount[v].toLocaleString()} spp.</span></span></div></li>`;
+    `<span class="tnode internal" title="${esc(cladeTitle(v))}">${cladeLabelHTML(v)} <span class="cnt">${xCount[v].toLocaleString()} spp.</span></span>` +
+    (a ? ` <span class="badge grp" title="These species are pooled into one answer: ${a.obs.toLocaleString()} observations between them${a.coarse ? `, including ${a.coarse.toLocaleString()} identified only to genus or a higher group` : ""}. Guessing any of them wins.">one answer</span>` : "") + `</div></li>`;
 }
 function toggleExplore(li) {
   const open = li.classList.toggle("open");
@@ -924,7 +1010,7 @@ function wire() {
     const HINT = { c: "🔍", g: "📋" };
     const hintsAt = i => (G.hintLog || []).filter(h => (h.at ?? G.guesses.length) === i).map(h => HINT[h.t] || "").join("");
     // the final symbol mustn't give the answer away: 🌸, or the practice clade's emoji
-    const rows = G.guesses.map((g, i) => hintsAt(i) + (g === G.secret ? shareEmoji() : qualityEmoji(Q.per[i].quality))).join("") +
+    const rows = G.guesses.map((g, i) => hintsAt(i) + (isWin(g) ? shareEmoji() : qualityEmoji(Q.per[i].quality))).join("") +
       hintsAt(G.guesses.length) + (G.won ? "" : "🏳️");
     let head, link = location.origin + location.pathname;
     if (G.mode === "daily") head = `Archaeplastida ${G.date}`;
